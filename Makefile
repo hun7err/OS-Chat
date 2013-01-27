@@ -1,0 +1,59 @@
+TARGET_KLIENT=client
+TARGET_SERWER=server
+CC=gcc
+
+CFLAGS=-c -Wall -g
+LINKER=gcc -o
+LFLAGS_KLIENT=
+LFLAGS_SERWER=
+LDLIBS_KLIENT=-lncurses
+LDLIBS_SERWER=
+
+SRCDIR_KLIENT=klient/src
+INCLDIR_KLIENT=klient/include
+OBJDIR_KLIENT=klient/obj
+BINDIR_KLIENT=klient/bin
+
+SRCDIR_SERWER=serwer/src
+INCLDIR_SERWER=serwer/include
+OBJDIR_SERWER=serwer/obj
+BINDIR_SERWER=serwer/bin
+
+SOURCES_KLIENT := $(wildcard $(SRCDIR_KLIENT)/*.c)
+SOURCES_SERWER := $(wildcard $(SRCDIR_SERWER)/*.c)
+INCLUDES_KLIENT := $(wildcard $(INCLDIR_KLIENT)/*.h)
+INCLUDES_SERWER := $(wildcard $(INCLDIR_SERWER)/*.h)
+OBJECTS_KLIENT := $(SOURCES_KLIENT:$(SRCDIR_KLIENT)/%.c=$(OBJDIR_KLIENT)/%.o)
+OBJECTS_SERWER := $(SOURCES_SERWER:$(SRCDIR_SERWER)/%.c=$(OBJDIR_SERWER)/%.o)
+rm=rm -fv
+
+.PHONEY: all
+all: klient serwer
+
+klient: $(OBJECTS_KLIENT)
+	@echo "LD   $(LINKER) $(BINDIR_KLIENT)/$(TARGET_KLIENT) $(LFLAGS) $(OBJECTS_KLIENT) $(LDLIBS_KLIENT)"
+	@$(LINKER) $(BINDIR_KLIENT)/$(TARGET_KLIENT) $(LFLAGS) $(OBJECTS_KLIENT) $(LDLIBS_KLIENT)
+
+$(OBJECTS_KLIENT): $(OBJDIR_KLIENT)/%.o : $(SRCDIR_KLIENT)/%.c
+	@$(CC) $(CFLAGS) -c $< -o $@
+	@echo "CC   $(CC) $(CFLAGS) -c $<"
+
+serwer: $(OBJECTS_SERWER)
+	@echo "LD   $(LINKER) $(BINDIR_SERWER)/$(TARGET_SERWER) $(LDFLAGS) $(OBJECTS_SERWER) $(LDLIBS_SERWER)"
+	@$(LINKER) $(BINDIR_SERWER)/$(TARGET_SERWER) $(LDFLAGS) $(OBJECTS_SERWER) $(LDLIBS_SERWER)
+
+$(OBJECTS_SERWER): $(OBJDIR_SERWER)/%.o : $(SRCDIR_SERWER)/%.c
+	@$(CC) $(CFLAGS) -c $< -o $@
+	@echo "serwer: $(CC) $(CFLAGS) -c $<"
+
+.PHONEY: clean
+clean:
+	@$(rm) $(OBJECTS_SERWER)
+	@$(rm) $(OBJECTS_KLIENT)
+	@echo "wyczyszczono"
+
+.PHONEY: remove
+remove: clean
+	@$(rm) $(BINDIR_KLIENT)/$(TARGET_KLIENT)
+	@$(rm) $(BINDIR_SERWER)/$(TARGET_SERWER)
+	@echo "usunieto binarke"
