@@ -1,7 +1,17 @@
+#include "../include/communication.h"
 #include "../include/text_processing.h"
 #include <stdio.h>
 
-void key_callback(gui_t *g, core_t *c, char *buf/*, int *cx, int *cy*/) {
+int stoi(char *c) {
+	char *tmp = c;
+	int ret = 0;
+	for(; *tmp != '\0'; tmp++) {
+		ret = 10*ret + *tmp - 48;
+	}
+	return ret;
+}
+
+void key_callback(gui_t *g, core_t *c, char *buf, int outfd) {
 	char chh;
 	int count = read(STDIN_FILENO, &chh, 1);
 	if(count == -1) {
@@ -24,7 +34,7 @@ void key_callback(gui_t *g, core_t *c, char *buf/*, int *cx, int *cy*/) {
 		break;*/
 		case 10:
 		case 13: // ENTER (wtf)
-			if(buf[0] == '/') parse_cmd(g, c, buf);
+			if(buf[0] == '/') parse_cmd(g, c, buf, outfd);
 			else {
 				// wyslij wiadomosc np.
 			}
@@ -48,7 +58,32 @@ void key_callback(gui_t *g, core_t *c, char *buf/*, int *cx, int *cy*/) {
 	}
 }
 
-void parse_cmd(gui_t *g, core_t *c, char *cmd) {
+void out_callback(int fd) {
+	message msg;
+	int len = mq_receive(fd, (char*)&msg, MAX_MSG_SIZE, NULL);
+	if (len > -1) {
+	int k = msg.dest, mid = -1;
+	switch(msg.type) {
+		case M_REGISTER:
+			mid = msgget(k, 0777);
+			if(mid != -1) {
+				compact_message cmg;
+				cmg.type = MSG_REGISTER;
+				strcpy(cmg.content.sender, msg.content.name);
+				cmg.content.value = msg.source;
+				msgsnd(mid, &cmg, member_size(compact_message,content), 0);
+			}
+		break;
+		default:
+		break;
+	}
+	}
+}
+
+void in_callback(gui_t *g, core_t *c, int fd) {
+}
+
+void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 	char *temp = cmd+1, *cmain = NULL, *carg1 = NULL, *carg2 = NULL;	// temporary, command main, command arg1, command arg2
 	cmain = calloc(64, sizeof(char));
 	carg1 = calloc(128, sizeof(char));
@@ -84,7 +119,27 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd) {
 		add_content_line(c, g->content, 0, "-!- /msg nazwa tresc - wysyla prywatna wiadomosc do uzytkownika o nazwie \"nazwa\"");
 		add_content_line(c, g->content, 0, "-!- /quit - wylacza komunikator");
 	} else if(strcmp(cmain, "quit") == 0) {
-		quit(); // dopisać jakąś funkcję która będzie zwalniać zasoby i dopiero wychodzić
+		quit(&res); // dopisać jakąś funkcję która będzie zwalniać zasoby i dopiero wychodzić
+	} else if(strcmp(cmain, "connect") == 0) {
+		if(carg1 == "" || carg2 == "") {
+			add_content_line(c, g->content, 0, " -!- Za malo argumentow dla komendy connect");
+		} else {
+		char buf[128];
+		sprintf(buf, "-!- Connecting to message queue %d as %s", stoi(carg1), carg2);
+		add_content_line(c, g->content, 0, buf);
+		message msg;
+		msg.type = M_REGISTER;
+		strcpy(msg.content.name, carg2);
+		msg.dest = stoi(carg1);
+		msg.source = c->mykey; // POPRAWIC! KONIECZNIE! ma byc klucz z res
+		add_content_line(c, g->content, 0, "-!- Sending message through internal queue...");
+		int len = mq_send(outfd, (char*)&msg, MAX_MSG_SIZE, M_REGISTER);
+		// wyslanie lokalnie
+		}
+	} else {
+		char buf[512];
+		sprintf(buf, " -!- Unknown command '%s'", cmain);
+		add_content_line(c, g->content, 0, buf);
 	}
 
 	// wydziel argument jako druga czesc komendy

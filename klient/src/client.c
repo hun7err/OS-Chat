@@ -17,9 +17,8 @@
 #include <sys/msg.h>
 #include <sys/poll.h>
 #include <mqueue.h>
+#include <errno.h>
 #include <signal.h>
-
-void out_callback() {}
 
 void sighandler(int num) {
 	if (num == SIGINT) {
@@ -79,29 +78,54 @@ int main(int argc, char ** argv) {
 	refresh();
 	int int_queue_in, int_queue_out, ext_queue; // internal queue, external queue
 	
+	struct mq_attr attr;
+	attr.mq_msgsize = MAX_MSG_SIZE;
+	attr.mq_maxmsg = 10;
+	
+	res.int_in_fd = int_queue_in = mq_open("/internal_in", O_RDWR|O_CREAT, 0777, &attr);
+	res.int_out_fd = int_queue_out = mq_open("/internal_out", O_RDWR|O_CREAT, 0777, &attr);
+
+	if(int_queue_in == -1 || int_queue_out == -1) {
+		endwin();
+		printf("max msg size: %d\n", MAX_MSG_SIZE);
+		perror("Nie mozna utworzyc wewnetrznych kolejek komunikatow");
+		printf("Numer bledu: %d\n", errno);
+		return -1;
+	}
+
 	// internal: obrobione dane do wyswietlenia
 	// external: "surowe" dane do obrobienia przez forki
 
-	res.queue_key = ext_queue = DEFAULT_QUEUE_KEY;
+	core.mykey = res.queue_key = ext_queue = DEFAULT_QUEUE_KEY;
 	//get_key(&ext_queue);
 	//int child1 = 0, child2 = 0;
 	if(!(res.child_id1 = fork())) {
 		if(!(res.child_id2 = fork())) {
 			signal(SIGINT, SIG_DFL);
 			struct pollfd ufds;
-			ufds.fd = int_queue_out;
+			int queue_out = mq_open("/internal_out", O_RDWR);
+			if(queue_out == -1) {
+				perror("Nie mozna otworzyc wewnetrznej kolejki komunikatow (out)");
+				return -1;
+			}
+			ufds.fd = queue_out;
 			ufds.events = POLLIN;
 			while(1) {
 				switch(poll(&ufds, 1, -1)) {
 					default:
 					if(ufds.revents && POLLIN)	// tu jakis callback do wysyłania np. get_and_send() w out_callback
-						out_callback();
+						out_callback(queue_out);
 						//key_callback(&gui, &core, buffer);
 				}
 			}
 			// wysylanie
 		} else {
 			signal(SIGINT, SIG_DFL);
+			int queue_in = mq_open("/internal_in", O_RDWR);
+			if(queue_in == -1) {
+				perror("Nie mozna otworzyc wewnetrznej kolejki komunikatow (in)");
+				return -1;
+			}
 			compact_message cmg; // m.in. do odpowiadania na HEARTBEAT
 			// odbieranie
 			while(1) {
@@ -150,7 +174,9 @@ int main(int argc, char ** argv) {
 				break;
 				default:
 					if(ufds[0].revents && POLLIN)
-						key_callback(&gui, &core, buffer);
+						key_callback(&gui, &core, buffer, int_queue_out);
+					if(ufds[1].revents && POLLIN)
+						in_callback(&gui, &core, int_queue_in);
 			}
 		}
 	}

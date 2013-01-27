@@ -10,6 +10,7 @@ typedef struct {
 	char room[MAX_ROOM_NAME_LENGTH];
 	char userlist[MAX_USER_COUNT_PER_SERVER * MAX_SERVER_COUNT][MAX_USER_NAME_LENGTH];
 	int cur_user_pos;
+	int mykey;
 	int cursor_x;
 	int cursor_y;
 } core_t;

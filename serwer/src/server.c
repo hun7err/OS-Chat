@@ -62,7 +62,6 @@ void get_key(int *key, char type) {
 }
 
 int main(int argc, char ** argv) {
-	const char *filename = "/tmp/czat.log";
 	char buff[30];
 	time_t t;
 	int semid, shmid, msgid, msg_key = START_KEY, sem_key = START_KEY, shm_key = START_KEY;
@@ -122,7 +121,7 @@ int main(int argc, char ** argv) {
 	signal(SIGINT, sighandler);
 
 	gettime(buff, &t);
-	printf("%s Online. SHM key: %d, SEM id: %d\n", buff, shm_key, sem_key);
+	printf("%s Online. SHM key: %d, SEM key: %d\n", buff, shm_key, sem_key);
 	printf("%s Tworzenie kolejki komunikatow\n", buff);
 	
 	get_key(&msg_key, MSG);
@@ -138,6 +137,7 @@ int main(int argc, char ** argv) {
 		return -1;
 	}
 	if(!fork()) {
+		while(1);
 		// heartbeat
 	} else {
 		gettime(buff, &t);
@@ -155,11 +155,15 @@ int main(int argc, char ** argv) {
 			}
 			int len = msgrcv(mid, &cmg, member_size(compact_message, content), -MSG_LEAVE, IPC_NOWAIT);
 			if(len != -1) {
-				printf("Odebralem compact_message\n");
-				printf("Zawartosc\nid: %d\nsender: %s\nvalue: %d\n", cmg.content.id, cmg.content.sender, cmg.content.value);
+				//printf("Odebralem compact_message\n");
+				//printf("Zawartosc\nid: %d\nsender: %s\nvalue: %d\n", cmg.content.id, cmg.content.sender, cmg.content.value);
 				switch(cmg.type) {
 					case MSG_REGISTER:
-						printf("Dostalem MSG_REGISTER!\n");
+						gettime(buff, &t);
+						sprintf(buf, "%s [%d] zarejestrowalem uzytkownika %s (kolejka: %d)", buff, msg_key, cmg.content.sender, cmg.content.value);
+						logfile(buf, &sem_key);
+						printf("%s Uzytkownik %s zarejestrowal sie z kluczem kolejki %d\n", buff, cmg.content.sender, cmg.content.value);
+						//printf("Dostalem MSG_REGISTER!\n");
 					break;
 					case MSG_UNREGISTER:
 					break;
@@ -171,7 +175,8 @@ int main(int argc, char ** argv) {
 					break;
 					case MSG_HEARTBEAT:
 					break;
-
+					default:
+					break;
 				}
 			}
 		}
@@ -211,7 +216,7 @@ int logfile(const char *message, int *sem_key) {
 		return -1;
 	}
 	p(semid, LOG);
-	int fd = open("/tmp/czat.log", O_RDWR | O_CREAT, 0777);
+	int fd = open(LOGFILE, O_RDWR | O_CREAT, 0777);
 	if(fd == -1) return -1;
 	if(lseek(fd,0,SEEK_END) == -1) return -1;
 	if(write(fd, message, strlen(message)) == -1) return -1;
