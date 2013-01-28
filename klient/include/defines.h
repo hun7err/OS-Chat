@@ -22,6 +22,6 @@ resources res;
 #define MAX_MSG_COUNT 16
 
 // różne hacki
-#define member_size(type, member) sizeof(((type *)0)->member)
+#define member_size(type, member) sizeof(((type *)0)->member) // gdyby sie zdarzylo, ze jakims cudem ta funkcja wyciekla gdzies i ktos ma identyczna to ja mam do niej prawa przede wszystkim :[
 
 #endif // DEFINES_H

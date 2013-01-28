@@ -25,9 +25,9 @@ typedef enum {
 
 typedef struct {
 	mtype type;
-	union {
+	struct {
 		char name[MAX_USER_NAME_LENGTH];
-		char list[MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER];
+		char list[MAX_USER_LIST_LENGTH][MAX_USER_NAME_LENGTH];
 		char room[MAX_ROOM_NAME_LENGTH];
 		char message[512];
 	} content;

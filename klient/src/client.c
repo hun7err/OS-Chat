@@ -28,9 +28,13 @@ void sighandler(int num) {
 
 void get_key(int *key) {
 	int qid = -1;
-	for(qid = -1; qid == -1; (*key)++) {
+	/*for(qid = -1; qid == -1; (*key)++) {
 		qid = msgget(*key, IPC_CREAT|IPC_EXCL|0777);
-	}
+	}*/
+	do {
+		qid = msgget(*key, IPC_CREAT | IPC_EXCL | 0777);
+		if(qid == -1) (*key)++;
+	} while (qid == -1);
 }
 
 int main(int argc, char ** argv) {
@@ -87,7 +91,7 @@ int main(int argc, char ** argv) {
 
 	if(int_queue_in == -1 || int_queue_out == -1) {
 		endwin();
-		printf("max msg size: %d\n", MAX_MSG_SIZE);
+		printf("max msg size: %lu\n", MAX_MSG_SIZE);
 		perror("Nie mozna utworzyc wewnetrznych kolejek komunikatow");
 		printf("Numer bledu: %d\n", errno);
 		return -1;
@@ -96,8 +100,11 @@ int main(int argc, char ** argv) {
 	// internal: obrobione dane do wyswietlenia
 	// external: "surowe" dane do obrobienia przez forki
 
-	core.mykey = res.queue_key = ext_queue = DEFAULT_QUEUE_KEY;
-	//get_key(&ext_queue);
+	ext_queue = DEFAULT_QUEUE_KEY;
+	get_key(&ext_queue);
+	core.mykey = res.queue_key = ext_queue;
+	sprintf(buf, "DEBUG moj klucz kolejki: %d", ext_queue);
+	add_content_line(&core, gui.content, 0, buf);
 	//int child1 = 0, child2 = 0;
 	if(!(res.child_id1 = fork())) {
 		if(!(res.child_id2 = fork())) {
@@ -117,6 +124,7 @@ int main(int argc, char ** argv) {
 						out_callback(queue_out);
 						//key_callback(&gui, &core, buffer);
 				}
+				
 			}
 			// wysylanie
 		} else {
@@ -127,6 +135,9 @@ int main(int argc, char ** argv) {
 				return -1;
 			}
 			compact_message cmg; // m.in. do odpowiadania na HEARTBEAT
+			standard_message smg; // m.in. wiadomosci prywatne/kanalowe
+			user_list usr;
+			message msg;
 			// odbieranie
 			while(1) {
 				int mid = msgget(ext_queue, 0777);
@@ -134,10 +145,58 @@ int main(int argc, char ** argv) {
 					// wyslij komunikat do GUI że się posypała kolejka
 					// spróbuj zaalokować nową
 				} else {
-					int len = msgrcv(mid, &cmg, member_size(compact_message, content), -TERM, IPC_NOWAIT);
+					int len = msgrcv(mid, &cmg, member_size(compact_message, content), -MSG_SERVER, IPC_NOWAIT), ret;
 					if(len != -1) {
+						//printf("Mam wiadomosc\n");
 						switch(cmg.type) {
 							case MSG_HEARTBEAT:
+							break;
+							case MSG_REGISTER:
+								switch(cmg.content.value) {
+									case 0:
+										msg.type = M_REGISTER;
+										strcpy(msg.content.name, cmg.content.sender);
+										mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_REGISTER);
+										msg.type = M_JOIN;
+										strcpy(msg.content.room, GLOBAL_ROOM_NAME);
+										ret = mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_JOIN);
+									break;
+									case -1: // nick istnieje
+										msg.type = M_ERROR;
+										strcpy(msg.content.message, "Blad rejestracji: nick uzywany");
+										ret = mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_ERROR);
+									break;
+									case -2: // serwer pelen
+										msg.type = M_ERROR;
+										strcpy(msg.content.message, "Blad rejestracji: serwer pelen");
+										ret = mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_ERROR);
+									break;
+								}
+							break;
+							default:
+							break;
+						}
+						if(ret == -1) {
+							perror("Blad mq_send");
+							printf("Numer bledu: %d\n");
+							exit(-1);
+						}
+					}
+					len = msgrcv(mid, &smg, member_size(standard_message, content), -MSG_SERVER, IPC_NOWAIT);
+					if(len != -1) {
+						switch(smg.type) {
+							case MSG_ROOM:
+							break;
+							case MSG_PRIVATE:
+							break;
+							default:
+							break;
+						}
+					}
+					len = msgrcv(mid, &usr, member_size(user_list, content), -MSG_SERVER, IPC_NOWAIT);
+					if(len != -1) {
+						switch(usr.type) {
+							case MSG_LIST:
 							break;
 							default:
 							break;

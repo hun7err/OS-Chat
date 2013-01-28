@@ -6,7 +6,7 @@ CFLAGS=-c -Wall -g
 LINKER=gcc -o
 LFLAGS_KLIENT=
 LFLAGS_SERWER=
-LDLIBS_KLIENT=-lncurses
+LDLIBS_KLIENT=-lrt -lncurses
 LDLIBS_SERWER=
 
 SRCDIR_KLIENT=klient/src
