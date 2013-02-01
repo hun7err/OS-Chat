@@ -44,7 +44,7 @@ serwer: $(OBJECTS_SERWER)
 
 $(OBJECTS_SERWER): $(OBJDIR_SERWER)/%.o : $(SRCDIR_SERWER)/%.c
 	@$(CC) $(CFLAGS) -c $< -o $@
-	@echo "serwer: $(CC) $(CFLAGS) -c $<"
+	@echo "CC   $(CC) $(CFLAGS) -c $<"
 
 .PHONEY: clean
 clean:
