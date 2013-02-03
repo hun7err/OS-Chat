@@ -330,7 +330,7 @@ int main(int argc, char ** argv) {
 						if(shared->clients[i].server_queue_key == msg_key && strcmp(shared->clients[i].name, smg.content.sender) != 0) {
 							int mid = msgget(shared->clients[i].queue_key, 0777);
 							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
-							printf("wysylam do %d\n", shared->clients[i].queue_key);
+							//printf("wysylam do %d\n", shared->clients[i].queue_key);
 						}
 					}
 					v(semid, CLIENT);

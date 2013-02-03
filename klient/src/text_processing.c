@@ -149,7 +149,7 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 		len = mq_receive(fd, (char*)&msg, MAX_MSG_SIZE, NULL);
 	} while(len <= 0);
 	//add_content_line(c, g->content, 0, "DEBUG: mam wiadomosc");
-		int i = 0, j = 0;
+		int i = 0/*, j = 0*/;
 		char buf[1024];
 		//gettime(curtime, &now);
 		switch(msg.type) {
@@ -183,6 +183,7 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 					strcpy(c->userlist[i], msg.content.list[i]);
 				}
 				for(i = 0; i < (MAX_USER_LIST_LENGTH < LINES ? MAX_USER_LIST_LENGTH : LINES); i++) {
+					if(strcmp(c->userlist[i], "") == 0) break;
 					mvwprintw(g->user_list, i, 0, "%s", c->userlist[i]);
 				}
 				wrefresh(g->user_list);
@@ -230,6 +231,7 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 		add_info(c, g->content, "Dostepne komendy:", &t);
 		add_info(c, g->content, "", &t);
 		add_info(c, g->content, "/help - wyswietla ta pomoc", &t);
+		add_info(c, g->content, "/list - lista uzytkownikow w pokoju", &t);
 		add_info(c, g->content, "/connect klucz_serwera nazwa - laczy z serwerem", &t);
 		add_info(c, g->content, "o podanym kluczu", &t);
 		add_info(c, g->content, "/disconnect - rozlacza z serwerem", &t);
@@ -238,22 +240,44 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 		add_info(c, g->content, "/msg nick tresc - wysyla prywatna wiadomosc", &t);
 		add_info(c, g->content, "/quit - wylacza aplikacje", &t);
 	} else if(strcmp(cmain, "quit") == 0) {
+		// tutaj jeszcze unregister najpierw
 		quit(&res); // dopisać jakąś funkcję która będzie zwalniać zasoby i dopiero wychodzić
 	} else if(strcmp(cmain, "msg") == 0) {
-		message msg;
-		msg.type = M_PRIVATE;
-		strcpy(msg.content.name, c->nick);
-		strcpy(msg.content.room, carg1);
-		strcpy(msg.content.message, carg2);
-		msg.source = c->mykey;
-		msg.dest = c->serverkey;
-		mq_send(outfd, (char*)&msg, MAX_MSG_SIZE, M_PRIVATE);
+		if(strcmp(carg1, "") == 0 || strcmp(carg2, "") == 0) {
+			//add_content_line(c, g->content, 0, " -!- Za malo argumentow dla komendy connect");
+			add_info(c, g->content, "Za malo argumentow dla 'msg'", &t);
+		} else {
+			message msg;
+			msg.type = M_PRIVATE;
+			strcpy(msg.content.name, c->nick);
+			strcpy(msg.content.room, carg1);
+			strcpy(msg.content.message, carg2);
+			msg.source = c->mykey;
+			msg.dest = c->serverkey;
+			mq_send(outfd, (char*)&msg, MAX_MSG_SIZE, M_PRIVATE);
+		}
 	} else if(strcmp(cmain, "disconnect") == 0) {
+		// MSG_UNREGISTER do serwera
 	} else if(strcmp(cmain, "join") == 0) {
+		// musi miec jeden argument minimum, MSG_JOIN do serwera
 	} else if(strcmp(cmain, "leave") == 0) {
+		// wyslij MSG_LEAVE do serwera
+	} else if(strcmp(cmain, "list") == 0) {
+		char buf[512];
+		strcpy(buf, "Aktualnie na ");
+		sprintf(buf, "%s#%s:", buf, c->room);
+		add_info(c,g->content,buf,&t);
+		strcpy(buf, "");
+		int i = 0;
+		for(i = 0; i < MAX_USER_LIST_LENGTH; i++) {
+			if(strcmp(c->userlist[i], "") == 0) break;
+			sprintf(buf, "%s %s", buf, c->userlist[i]);
+		}
+		add_info(c,g->content,buf,&t);
 	} else if(strcmp(cmain, "connect") == 0) {
 		if(strcmp(carg1, "") == 0 || strcmp(carg2, "") == 0) {
-			add_content_line(c, g->content, 0, " -!- Za malo argumentow dla komendy connect");
+			//add_content_line(c, g->content, 0, " -!- Za malo argumentow dla komendy connect");
+			add_info(c, g->content, "Za malo argumentow dla 'connect'", &t);
 		} else {
 		char buf[128];
 		sprintf(buf, "Lacze sie z kolejka %d jako %s", atoi(carg1), carg2);
