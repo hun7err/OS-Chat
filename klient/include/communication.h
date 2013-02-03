@@ -30,6 +30,7 @@ typedef struct {
 		char list[MAX_USER_LIST_LENGTH][MAX_USER_NAME_LENGTH];
 		char room[MAX_ROOM_NAME_LENGTH];
 		char message[512];
+		time_t date;
 	} content;
 	int dest;
 	int source;

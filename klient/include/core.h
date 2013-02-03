@@ -14,6 +14,7 @@ typedef struct {
 	int serverkey;
 	int cursor_x;
 	int cursor_y;
+//	int server_key[2];	// do wymiany serverkey z procesem od odbierania listy
 } core_t;
 
 void add_user_to_list(core_t *c, const char *name);

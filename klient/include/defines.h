@@ -7,12 +7,16 @@
 typedef struct {
 	int child_id1;
 	int child_id2;
+	int child_id3;
 	int queue_key;
 	int int_in_fd;
 	int int_out_fd;
+	char q_in[128];
+	char q_out[128];
 } resources;
 
 resources res;
+int server_key[2];
 
 // stałe
 #define KEY_ESCAPE 27

@@ -47,7 +47,7 @@ int main(int argc, char ** argv) {
 
 	if(argc == 1) {
 		shared->key_semaphores = sem_key;
-		res.sem_key = sem_key;
+		//res.sem_key = sem_key;
 		semid = semget(sem_key, 3, IPC_CREAT|0777);
 		if(semctl(semid, 0, SETALL, sem) == -1) {
 			perror("Nie mozna ustawic semaforow");
@@ -62,9 +62,14 @@ int main(int argc, char ** argv) {
 		p(semid, CLIENT);
 		for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 			shared->clients[i].queue_key = -1;
+			strcpy(shared->clients[i].room, "");
+			strcpy(shared->clients[i].name, "");
 		}
 		v(semid, CLIENT);
 	} else sem_key = shared->key_semaphores;
+
+	res.sem_key = sem_key;
+	res.shm_key = shm_key;
 
 	if(shmdt(shared) == -1) {
 		perror("Blad odlaczania SHM");
@@ -76,7 +81,7 @@ int main(int argc, char ** argv) {
 		return -1;
 	}
 	
-	signal(SIGINT, sighandler);
+	//signal(SIGINT, sighandler);
 
 	gettime(buff, &t);
 	printf("%s Online. SHM key: %d, SEM key: %d\n", buff, shm_key, sem_key);
@@ -132,6 +137,7 @@ int main(int argc, char ** argv) {
 		}
 		compact_message cmg;
 		standard_message smg;
+		server_message svmg;
 
 		struct timespec tim;
 		tim.tv_sec = 0;
@@ -263,16 +269,176 @@ int main(int argc, char ** argv) {
 			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_HEARTBEAT) != -1) {
 				// obsluga heartbeat - odpowiedzi (dac tutaj wewnetrzna kolejke SysV i do niej sobie wysylac te odpowiedzi, pozniej odbierac je w watku wysylajacym)
 			}
-			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_LIST) != -1) {
+			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_LIST) != -1) {
 				// odeslij w user_list liste userow
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_LIST od %d\n", curtime, cmg.content.value);
+				user_list usr;
+				usr.type = MSG_LIST;
+				int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				if(shmid != -1) {
+					shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
+					if(shared == (void*)(-1)) {
+						perror("Nie mozna podlaczyc SHM");
+						return -1;
+					}
+					int semid = semget(res.sem_key, 3, 0777), i, cur = 0;
+					if(semid == -1) {
+						perror("Nie mozna pobrac id semaforow");
+						return -1;
+					}
+					p(semid, CLIENT);
+					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
+						if(cur > MAX_USER_LIST_LENGTH) break;
+						if(shared->clients[i].queue_key != -1) {
+							strcpy(usr.content.list[cur], shared->clients[i].name);
+							cur++;
+						}
+					}
+					v(semid, CLIENT);
+					for(i = cur; i < MAX_USER_LIST_LENGTH; i++) strcpy(usr.content.list[cur], "");	// good guy hun7er clears your empty user fields.
+					shmdt(shared);
+					int rcpt = msgget(cmg.content.value, 0777);
+					msgsnd(rcpt, &usr, member_size(user_list, content), IPC_NOWAIT);
+				}
 			}
 			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_ROOM) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_ROOM od %d\n", curtime, cmg.content.value);
+				server_message svm;
+				svm.type = MSG_SERVER;
+				svm.content.msg = smg;
+				/* tu wyslij do pozostalych svm */
+				int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				if(shmid != -1) {
+					shm_type *shared = (shm_type*)shmat(shmid, NULL, 0);
+					if(shared == (void*)(-1)) {
+						perror("Nie mozna podlaczyc SHM");
+						return -1;
+					}
+					int semid = semget(res.sem_key, 3, 0777), i;
+					if(semid == -1) {
+						perror("Nie mozna pobrac id semaforow");
+						return -1;
+					}
+					p(semid, CLIENT);
+					for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+						if(shared->clients[i].server_queue_key == msg_key && strcmp(shared->clients[i].name, smg.content.sender) != 0) {
+							int mid = msgget(shared->clients[i].queue_key, 0777);
+							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+							printf("wysylam do %d\n", shared->clients[i].queue_key);
+						}
+					}
+					v(semid, CLIENT);
+					p(semid, SERVER);
+					for(i = 0; i < MAX_SERVER_COUNT; i++) {
+						if(shared->servers[i].queue_key != -1 && shared->servers[i].queue_key != msg_key) {
+							int mid = msgget(shared->servers[i].queue_key, 0777);
+							msgsnd(mid, &svm, member_size(server_message, content), IPC_NOWAIT);
+						}
+					}
+					v(semid, SERVER);
+					shmdt(shared);
+				}
 				// spakuj do MSG_SERVER i wyslij do wszystkich serwerow poza soba, jesli na serwerze istnieje pokoj do ktorego szla wiadomosc to wtedy do userow tego pokoju wyslij wiadomosc
 			}
-			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_SERVER) != -1) {
+			if(receive(msg_key, &svmg, member_size(server_message, content), MSG_SERVER) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_SERVER od %d\n", curtime, cmg.content.value);
+				smg = svmg.content.msg;
+				int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				// pobierz sobie semafory i shm
+				if(shmid == -1) {
+					perror("Nie mozna pobrac SHM");
+					return -1;
+				}
+				shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
+				if(shared == (void*)(-1)) {
+					perror("Nie mozna podpiac SHM");
+					return -1;
+				}
+				int semid = semget(res.sem_key, 3, 0777), i;
+				if(semid == -1) {
+					perror("Nie mozna pobrac id semaforow");
+					return -1;
+				}
+				p(semid, CLIENT);
+				switch(smg.type) {
+					case MSG_ROOM:
+						//printf("Wiadomosc do kanalu: %s\n", smg.content.recipient);
+						// podepnij shm, opusc semafory i sprawdz serwery
+						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+							if(strcmp(shared->clients[i].room, smg.content.recipient) == 0 && shared->clients[i].server_queue_key == msg_key) {
+								int mid = msgget(shared->clients[i].queue_key, 0777);
+								msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+								//printf("przeslano do %d\n", shared->clients[i].queue_key);
+							}
+						}
+					break;
+					case MSG_PRIVATE:
+						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+							if(strcmp(shared->clients[i].name, smg.content.recipient) == 0 && shared->clients[i].server_queue_key == msg_key) {
+								int mid = msgget(shared->clients[i].queue_key, 0777);
+								msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+							}
+						}
+						// podobnie ale klientow
+					break;
+					default:
+					break;
+				}
+				v(semid, CLIENT);
+				shmdt(shared);
 				// odpakuj wiadomosc, sprawdz czy masz komu/gdzie wyslac
 			}
 			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_PRIVATE) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_PRIVATE od %d\n", curtime, cmg.content.value);
+				//server_message svm;
+				//svm.type = MSG_SERVER;
+				//svm.content.msg = smg;
+				/* tu wyslij do pozostalych svm */
+				int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				if(shmid != -1) {
+					shm_type *shared = (shm_type*)shmat(shmid, NULL, 0);
+					if(shared == (void*)(-1)) {
+						perror("Nie mozna podlaczyc SHM");
+						return -1;
+					}
+					int semid = semget(res.sem_key, 3, 0777), i;
+					if(semid == -1) {
+						perror("Nie mozna pobrac id semaforow");
+						return -1;
+					}
+					p(semid, CLIENT);
+					for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+						if(/*shared->clients[i].server_queue_key == */msg_key && strcmp(shared->clients[i].name, smg.content.recipient) == 0) {
+							int mid = msgget(shared->clients[i].queue_key, 0777);
+							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+							//printf("wysylam do %d\n", shared->clients[i].queue_key);
+							break;
+						}
+					}
+					v(semid, CLIENT);
+					/*p(semid, SERVER);
+					for(i = 0; i < MAX_SERVER_COUNT; i++) {
+						if(shared->servers[i].queue_key != -1 && shared->servers[i].queue_key != msg_key) {
+							int mid = msgget(shared->servers[i].queue_key, 0777);
+							msgsnd(mid, &svm, member_size(server_message, content), IPC_NOWAIT);
+						}
+					}
+					v(semid, SERVER);*/
+					shmdt(shared);
+				}
+
 				// sprawdz czy user jest na serwerze, jesli tak to wyslij, potem spakuj do MSG_SERVER i podaj do wszystkich serwerow poza soba samym
 			}
 			nanosleep(&tim, NULL);

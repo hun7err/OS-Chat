@@ -65,21 +65,23 @@ int main(int argc, char ** argv) {
 	core.room[8] = '\0';
 	core.cur_line = 0;
 	core.cur_user_pos = 0;
-
+	init_colors();
 	draw_gui(gui.mainwindow, &core);
 
 	core.cursor_x = 0;
 	core.cursor_y = LINES-1;
-	char cur_time[9], userlist_buffer[1024], buffer[1024];
-	time_t now = time(NULL);
-	strftime(cur_time, 9, "%H:%M:%S", localtime(&now));
-	cur_time[8] = '\0';
-	char buf[512];
-	sprintf(buf, "-!- client started at %s", cur_time);
-	add_content_line(&core, gui.content, 0, buf);
-	add_content_line(&core, gui.content, 0, "-!- type /help for help");
+	//core.serverkey = 0;
+	char /*cur_time[9], userlist_buffer[1024],*/ buffer[1024];
+	time_t now;
+	//strftime(cur_time, 9, "%H:%M:%S", localtime(&now));
+	//cur_time[8] = '\0';
+	//char buf[512];
+	add_info(&core, gui.content, "OS-Chat wystartowal", &now);
+	add_info(&core, gui.content, "wpisz /help aby uzyskac pomoc", &now);
+	//add_msg(&core, gui.content, "hun7er", "czesc", &now, 1);
+	//add_msg(&core, gui.content, "hun7er", "]:>", &now, 1);
+	//add_msg(&core, gui.content, "bot", "yo", &now, 0);
 
-	
 	//add_user_to_list(&core, "hun7er");
 	//add_user_to_list(&core, "testowy");
 	//add_content_line(&core, gui.content, 0, "-!- uzytkownik mescam dolaczyl do #global");
@@ -92,9 +94,22 @@ int main(int argc, char ** argv) {
 	struct mq_attr attr;
 	attr.mq_msgsize = MAX_MSG_SIZE;
 	attr.mq_maxmsg = 10;
+	//char buf[128];
+	int e1 = 1, e2 = 1;
 	
-	res.int_in_fd = int_queue_in = mq_open("/internal_in", O_RDWR|O_CREAT, 0777, &attr);
-	res.int_out_fd = int_queue_out = mq_open("/internal_out", O_RDWR|O_CREAT, 0777, &attr);
+	do {
+		sprintf(res.q_in, "/internal_in%d", e1);
+		res.int_in_fd = mq_open(res.q_in, O_RDWR|O_CREAT|O_EXCL, 0777, &attr);
+		e1++;
+	} while(res.int_in_fd == -1);
+	do {
+		sprintf(res.q_out, "/internal_out%d", e2);
+		res.int_out_fd = mq_open(res.q_out, O_RDWR|O_CREAT|O_EXCL, 0777, &attr);
+		e2++;
+	} while(res.int_out_fd == -1);
+
+	int_queue_in = res.int_in_fd;
+	int_queue_out = res.int_out_fd;
 
 	if(int_queue_in == -1 || int_queue_out == -1) {
 		endwin();
@@ -103,6 +118,17 @@ int main(int argc, char ** argv) {
 		printf("Numer bledu: %d\n", errno);
 		return -1;
 	}
+	//sprintf(buf, "Kolejki: %s (in), %s (out)", res.q_in, res.q_out);
+	//add_info(&core, gui.content, buf, &now);
+	now = time(NULL);
+	//add_private(&core, gui.content, "hun7er", "psssst. Kolego, masz na ziarno?", &now);
+
+	int ret = pipe(server_key);
+	if(ret == -1) {
+		add_content_line(&core, gui.content, 0, "-!- Blad: nie mozna utworzyc potoku");
+	}
+	fcntl(server_key[0], F_SETFL, O_NDELAY);
+	fcntl(server_key[1], F_SETFL, O_NDELAY);
 
 	// internal: obrobione dane do wyswietlenia
 	// external: "surowe" dane do obrobienia przez forki
@@ -110,13 +136,14 @@ int main(int argc, char ** argv) {
 	ext_queue = DEFAULT_QUEUE_KEY;
 	get_key(&ext_queue);
 	core.mykey = res.queue_key = ext_queue;
-	sprintf(buf, "DEBUG moj klucz kolejki: %d", ext_queue);
-	add_content_line(&core, gui.content, 0, buf);
+	core.serverkey = 0;
+	//sprintf(buf, "DEBUG moj klucz kolejki: %d", ext_queue);
+	//add_content_line(&core, gui.content, 0, buf);
 	signal(SIGINT, SIG_DFL);
 	//int child1 = 0, child2 = 0;
 	if(!(res.child_id1 = fork())) {
 		signal(SIGINT, SIG_DFL);
-		int queue_in = mq_open("/internal_in", O_RDWR);
+		int queue_in = mq_open(res.q_in, O_RDWR), skey = 0, queue_out = mq_open(res.q_out, O_RDWR);
 		if(queue_in == -1) {
 			perror("Nie mozna otworzyc wewnetrznej kolejki komunikatow (in)");
 			return -1;
@@ -129,10 +156,13 @@ int main(int argc, char ** argv) {
 		
 		struct timespec tim;
 		tim.tv_sec = 0;
-		tim.tv_nsec = 1000;
-		
+		tim.tv_nsec = 1000;	
+
+		//close(server_key[1]);
+
 		while(1) {
 			int mid = msgget(ext_queue, 0777);
+			char buf[64];
 			if(mid == -1) {
 				// wyslij komunikat do GUI że się posypała kolejka
 				// spróbuj zaalokować nową
@@ -141,6 +171,7 @@ int main(int argc, char ** argv) {
 					
 				}
 				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_REGISTER) != -1) {
+					int /*mid = -1, */len = -1, val;
 					switch(cmg.content.value) {
 						case 0:
 							msg.type = M_REGISTER;
@@ -150,6 +181,21 @@ int main(int argc, char ** argv) {
 							msg.type = M_JOIN;
 							strcpy(msg.content.room, GLOBAL_ROOM_NAME);
 							mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_JOIN);
+							msg.type = M_USERLIST;
+							msg.source = core.mykey;
+							len = 0;
+							do {
+								len = read(server_key[0], &buf, 64);
+							} while (len == 0);
+							write(server_key[1], &buf, 64);
+							
+							val = atoi(buf);
+							if(skey != val) skey = val;
+							if(skey != 0) {
+								msg.dest = skey;
+								mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
+							}
+								//msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
 						break;
 						case -1: // nick istnieje
 							msg.type = M_ERROR;
@@ -164,10 +210,25 @@ int main(int argc, char ** argv) {
 					}
 				}
 				if(receive(ext_queue, &smg, member_size(standard_message, content), MSG_ROOM) != -1) {
+					msg.type = M_MESSAGE;
+					strcpy(msg.content.message, smg.content.message);
+					strcpy(msg.content.name, smg.content.sender);
+					msg.content.date = smg.content.send_date;
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_MESSAGE);
 				}
 				if(receive(ext_queue, &smg, member_size(standard_message, content), MSG_PRIVATE) != -1) {
+					msg.type = M_PRIVATE;
+					strcpy(msg.content.message, smg.content.message);
+					strcpy(msg.content.name, smg.content.sender);
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_PRIVATE);
 				}
-				if(receive(ext_queue, &usr, member_size(standard_message, content), MSG_LIST) != -1) {
+				if(receive(ext_queue, &usr, member_size(user_list, content), MSG_LIST) != -1) {
+					msg.type = M_USERLIST;
+					int i = 0;
+					for(; i < MAX_USER_LIST_LENGTH; i++) {
+						strcpy(msg.content.list[i], usr.content.list[i]);
+					}
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
 				}
 			}
 			nanosleep(&tim, NULL);
@@ -178,7 +239,7 @@ int main(int argc, char ** argv) {
 		if(!(res.child_id2 = fork())) {
 			signal(SIGINT, SIG_DFL);
 			struct pollfd ufds;
-			int queue_out = mq_open("/internal_out", O_RDWR);
+			int queue_out = mq_open(res.q_out, O_RDWR);
 			if(queue_out == -1) {
 				perror("Nie mozna otworzyc wewnetrznej kolejki komunikatow (out)");
 				return -1;
@@ -196,8 +257,42 @@ int main(int argc, char ** argv) {
 			}
 			// wysylanie
 		} else {
+			if(!(res.child_id3 = fork())) {
+				int queue_out = mq_open(res.q_out, O_RDWR);
+				if(queue_out == -1) {
+					endwin();
+					perror("Nie mozna otworzyc wewnetrznej kolejki");
+					kill(getppid(), SIGKILL);
+					exit(-1);
+				}
+				struct timespec tim;
+				tim.tv_sec = 2;
+				tim.tv_nsec = 0;
+				//char buf[512];
+				int skey = 0;
+				//close(server_key[1]);
+				while(1) {
+					//sprintf(buf, "[DEBUG] core.serverkey: %d", core.serverkey);
+					//add_content_line(&core, gui.content, 1, buf);
+					char buf[64];
+					read(server_key[0], &buf, 64);
+					int val = atoi(buf);
+					if(val != skey)	skey = val;
+					if(skey != 0) {
+						message msg;
+						msg.type = M_USERLIST;
+						msg.source = core.mykey;
+						msg.dest = skey;
+						mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
+						sprintf(buf, "%d", skey);
+						write(server_key[1], &buf, 64);
+						//add_content_line(&core, gui.content, 1, "[DEBUG] Trying to reach server...");
+					}
+					nanosleep(&tim, NULL);
+				}
+			} else {
 			signal(SIGINT, sighandler);
-			int i = 0, ufds_size = 2;
+			int /*i = 0, */ufds_size = 2;
 			struct pollfd ufds[2];
 
 			ufds[0].fd = STDIN_FILENO;
@@ -206,12 +301,12 @@ int main(int argc, char ** argv) {
 			ufds[1].events = POLLIN;
 	
 			while(1) {
-				mvwprintw(gui.user_list, 0, 0, "%s", userlist_buffer);
-				for(i = 0; i < LINES; i++) { // naprawic zeby tylko wyswietlalo gdy jest jakas zmiana
+				//mvwprintw(gui.user_list, 0, 0, "%s", userlist_buffer);
+				/*for(i = 0; i < LINES; i++) { // naprawic zeby tylko wyswietlalo gdy jest jakas zmiana
 					mvwprintw(gui.user_list, i, 0, "%s", core.userlist[i]);
 				}
-				wrefresh(gui.user_list);
-				wmove(gui.mainwindow, core.cursor_y, strlen(core.room)+3+core.cursor_x);
+				wrefresh(gui.user_list);*/
+				wmove(gui.mainwindow, core.cursor_y, (strcmp(core.room, "(status)") == 0 ? strlen(core.room)+3+core.cursor_x : strlen(core.room)+4+core.cursor_x));
 				wrefresh(gui.mainwindow);
 				//refresh();
 	
@@ -227,41 +322,8 @@ int main(int argc, char ** argv) {
 							in_callback(&gui, &core, int_queue_in);
 				}
 			} // while(1)
+			}
 		} // else
 	} // else forka
 	return 0;
 }
-
-/*void process_key(gui_t g, int ch, int *cx, int *cy) {
-	switch(ch) {
-		case KEY_BACKSPACE:
-			if(*cx >= 12) {
-				(*cx)--;
-				mvwprintw(g.mainwindow, *cy, *cx, "%c", ' ');
-				wrefresh(g.mainwindow);
-			}
-		break;
-		case KEY_ESCAPE:
-			endwin();
-			exit(0);
-		break;
-		case KEY_RESIZE:
-			destroy_window(g.mainwindow);
-			destroy_window(g.content);
-			destroy_window(g.user_list);
-			g.mainwindow = create_window(LINES, COLS, 0, 0);
-			draw_gui(g.mainwindow);
-			g.content = create_window(LINES-3,COLS-16-1,1,1);
-			g.user_list = create_window(LINES-3,16,1,COLS-16-1);
-			*cy = LINES-1;
-			// tutaj gdzies dac wypisanie bufora z tekstem
-			move(*cy, *cx);
-			wrefresh(g.mainwindow);
-			wrefresh(g.content);
-			wrefresh(g.user_list);
-		break;
-		default:
-			(*cx)++;
-		break;
-	}
-}*/
