@@ -149,7 +149,7 @@ int main(int argc, char ** argv) {
 						p(semid, CLIENT);
 						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 							if(shared->clients[i].queue_key != -1 && shared->clients[i].server_queue_key == msg_key) {
-								printf("heartbeat do %d\n", shared->clients[i].queue_key);
+								printf("Heartbeat do %d\n", shared->clients[i].queue_key);
 								cmg.type = MSG_HEARTBEAT;
 								cmg.content.value = msg_key;
 								vals[j] = shared->clients[i].queue_key;
