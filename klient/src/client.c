@@ -175,7 +175,13 @@ int main(int argc, char ** argv) {
 				// spróbuj zaalokować nową
 			} else {	
 				if(receive(ext_queue, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT) != -1) {
-					
+					msg.type = M_HEARTBEAT;
+					msg.source = cmg.content.value;
+					int rcpt = msgget(cmg.content.value, 0777);
+					cmg.content.value = core.mykey;
+					msgsnd(rcpt, &cmg, sizeof(compact_message), IPC_NOWAIT);
+					//mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_HEARTBEAT);
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_HEARTBEAT);
 				}
 				if(receive(ext_queue, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_JOIN) != -1) {
 					int ret = 0;

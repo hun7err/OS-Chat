@@ -137,16 +137,18 @@ int main(int argc, char ** argv) {
 				vals[MAX_USER_COUNT_PER_SERVER],
 				ret = 1, j = 0;
 			if(shmid != -1) {
+				//printf("shmid != -1\n");
 				int semid = semget(res.sem_key, 3, 0777);
 				if(semid != -1) {
 					shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
 					if(shared != (void*)(-1)) {
-						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+						for(i = 0; i < MAX_USER_COUNT_PER_SERVER; i++) {
 							vals[i] = 0;
 						}
 						i = 0;
-
+						//printf("przed p(semid, CLIENT)\n");
 						p(semid, CLIENT);
+						//printf("po opuszczeniu semafora CLIENT\n");
 						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 							if(shared->clients[i].queue_key != -1 && shared->clients[i].server_queue_key == msg_key) {
 								printf("Heartbeat do %d\n", shared->clients[i].queue_key);
@@ -168,7 +170,7 @@ int main(int argc, char ** argv) {
 			char curtime[25];
 			time_t t;
 			gettime(curtime, &t);
-			//printf("%s HEARTBEAT: sprawdzam\n", curtime);
+			printf("%s HEARTBEAT: sprawdzam\n", curtime);
 			mid = msgget(res.heartbeat_msg_key, 0777);
 			if(mid != -1) {
 				compact_message cmg;
@@ -184,23 +186,6 @@ int main(int argc, char ** argv) {
 					}
 					i++;
 				} while(ret != -1);
-
-				p(semid, CLIENT);
-				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
-						if(shared->clients[i].queue_key == vals[j] && vals[j] > 0) {
-							strcpy(shared->clients[i].room, "");
-							strcpy(shared->clients[i].name, "");
-							shared->clients[i].queue_key = -1;
-							shared->clients[i].server_queue_key = -1;
-						}
-					}
-				}
-				v(semid, CLIENT);
-
-				//printf("odebrano:\n");
-				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
-				//printf("\n");
 				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
 				if(shmid == -1) {
 					perror("Blad shmget");
@@ -216,6 +201,25 @@ int main(int argc, char ** argv) {
 					perror("Nie mozna podlaczyc SHM");
 					exit(-1);
 				}
+				p(semid, CLIENT);
+				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
+						if(shared->clients[i].queue_key == vals[j] && vals[j] > 0) {
+							gettime(curtime, &t);
+							printf("%s Usuwam %d\n", curtime, vals[j]);
+							strcpy(shared->clients[i].room, "");
+							strcpy(shared->clients[i].name, "");
+							shared->clients[i].queue_key = -1;
+							shared->clients[i].server_queue_key = -1;
+						}
+					}
+				}
+				v(semid, CLIENT);
+
+				//printf("odebrano:\n");
+				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
+				//printf("\n");
+				
 				//for(
 				//p(semid, CLIENT);
 				/*for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
