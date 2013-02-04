@@ -16,9 +16,11 @@ typedef enum {
 	M_LEAVE,
 	M_JOIN,
 	M_REGISTER,
+	M_UNREGISTER,
 	M_MESSAGE,
 	M_PRIVATE,
-	M_ERROR
+	M_ERROR,
+	M_HEARTBEAT // debug
 } mtype;
 
 #define MAX_MSG_SIZE sizeof(message)+1

@@ -13,6 +13,12 @@ void sighandler(int signum) {
 			printf("Error nr: %d", errno);
 			exit(-1);
 		}
+		int hmsgid = msgget(res.heartbeat_msg_key, 0777);
+		if(msgctl(hmsgid, IPC_RMID, NULL) == -1) {
+			perror("Nie mozna usunac kolejki (heartbeat)");
+			printf("Error nr: %d, key kolejki: %d, id: %d\n", errno, res.heartbeat_msg_key, hmsgid);
+			//exit(-1);
+		}
 		//printf("po probie usuniecia kolejki\n");
 		int semid = semget(res.sem_key, 3, 0777), shmid, i, count;
 		if(semid != -1) {

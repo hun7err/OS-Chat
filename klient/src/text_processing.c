@@ -127,6 +127,34 @@ void out_callback(int fd) {
 				msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
 			}
 		break;
+		case M_JOIN:
+			mid = msgget(k, 0777);
+			if(mid != -1) {
+				standard_message smg;
+				smg.type = MSG_JOIN;
+				strcpy(smg.content.message, msg.content.room);
+				strcpy(smg.content.sender, msg.content.name);
+				msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+			}
+		break;
+		case M_LEAVE:
+			mid = msgget(k, 0777);
+			if(mid != -1) {
+				compact_message cmg;
+				cmg.type = MSG_LEAVE;
+				cmg.content.value = msg.source;
+				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+			}
+		break;
+		case M_UNREGISTER:
+			mid = msgget(k, 0777);
+			if(mid != -1) {
+				compact_message cmg;
+				cmg.type = MSG_UNREGISTER;
+				cmg.content.value = msg.source;
+				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+			}
+		break;
 		default:
 		break;
 	}
@@ -149,7 +177,7 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 		len = mq_receive(fd, (char*)&msg, MAX_MSG_SIZE, NULL);
 	} while(len <= 0);
 	//add_content_line(c, g->content, 0, "DEBUG: mam wiadomosc");
-		int i = 0/*, j = 0*/;
+		int i = 0, j = 0;
 		char buf[1024];
 		//gettime(curtime, &now);
 		switch(msg.type) {
@@ -174,11 +202,13 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 			break;
 			case M_USERLIST:
 				//add_content_line(c, g->content, 0, "[DEBUG] jest lista userow!");
-				/*for(i = 0; i < 16; i++) {
+				for(i = 0; i < 16; i++) {
 					for(j = 0; j < LINES-1; j++) {
 						mvwprintw(g->user_list, j, i, " ");
 					}
-				}*/
+				}
+				for(i = 0; i < MAX_USER_LIST_LENGTH; i++)
+					strcpy(c->userlist[i], "");
 				for(i = 0; i < MAX_USER_LIST_LENGTH; i++) {
 					strcpy(c->userlist[i], msg.content.list[i]);
 				}
@@ -195,6 +225,21 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 			case M_PRIVATE:
 				add_private(c, g->content, msg.content.name, msg.content.message, &(msg.content.date));
 			break;
+			case M_LEAVE:
+				strcpy(c->room, "global");
+				add_info(c, g->content, "Powrociles do #global", &now);
+				for(i = 0; i < COLS; i++)
+					mvwprintw(g->mainwindow, LINES-1, i, " ");
+				mvwprintw(g->mainwindow, LINES-1, 0, "[#%s]", c->room);
+				wmove(g->mainwindow, c->cursor_y, strlen(c->room)+3+c->cursor_x);
+				wrefresh(g->mainwindow);
+			break;
+			case M_HEARTBEAT:
+				//sprintf(buf, "%d", c->serverkey);
+				//add_private(c,g->content,buf,"heartbeat",&now);
+				//sprintf(buf, "%d", msg.source);
+				//add_private(c,g->content,buf,"moj numer kolejki",&now);
+			break;
 			default:
 			break;
 		}
@@ -202,6 +247,7 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 }
 
 void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
+	close(room[0]);
 	time_t t;
 	char *temp = cmd+1, *cmain = NULL, *carg1 = NULL, *carg2 = NULL;	// temporary, command main, command arg1, command arg2
 	cmain = calloc(64, sizeof(char));
@@ -241,6 +287,12 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 		add_info(c, g->content, "/quit - wylacza aplikacje", &t);
 	} else if(strcmp(cmain, "quit") == 0) {
 		// tutaj jeszcze unregister najpierw
+		message msg;
+		msg.type = M_UNREGISTER;
+		msg.dest = c->serverkey;
+		c->serverkey = 0;
+		msg.source = c->mykey;
+		mq_send(outfd,(char*)&msg, MAX_MSG_SIZE, M_UNREGISTER);
 		quit(&res); // dopisać jakąś funkcję która będzie zwalniać zasoby i dopiero wychodzić
 	} else if(strcmp(cmain, "msg") == 0) {
 		if(strcmp(carg1, "") == 0 || strcmp(carg2, "") == 0) {
@@ -257,10 +309,67 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 			mq_send(outfd, (char*)&msg, MAX_MSG_SIZE, M_PRIVATE);
 		}
 	} else if(strcmp(cmain, "disconnect") == 0) {
+		/*
+		sprintf(buf, "Dolaczasz do #%s", msg.content.room);
+				sprintf(c->room, "%s", msg.content.room);
+				add_info(c, g->content, buf, &now);
+				for(i = 0; i < COLS; i++)
+					mvwprintw(g->mainwindow, LINES-1, i, " ");
+				mvwprintw(g->mainwindow, LINES-1, 0, "[#%s]", c->room);
+				wmove(g->mainwindow, c->cursor_y, strlen(c->room)+3+c->cursor_x);
+				wrefresh(g->mainwindow);
+
+		*/
+		message msg;
+		msg.type = M_UNREGISTER;
+		msg.dest = c->serverkey;
+		c->serverkey = 0;
+		msg.source = c->mykey;
+		mq_send(outfd,(char*)&msg, MAX_MSG_SIZE, M_UNREGISTER); 
+		strcpy(c->room, "(status)");
+		add_info(c,g->content,"Rozlaczono", &t);
+		for(i = 0; i < COLS; i++)
+			mvwprintw(g->mainwindow, LINES-1, i, " ");
+		mvwprintw(g->mainwindow, LINES-1, 0, "[%s]", c->room);
+		wmove(g->mainwindow, c->cursor_y, strlen(c->room)+3+c->cursor_x);
+		wrefresh(g->mainwindow);
+		for(i = 0; i < MAX_USER_LIST_LENGTH; i++) strcpy(c->userlist[i], "");
+		int j = 0;
+		for(i = 0; i < 16; i++) {
+			for(j = 0; j < LINES-1; j++) {
+				mvwprintw(g->user_list, j, i, " ");
+			}
+		}
+		wrefresh(g->user_list);
 		// MSG_UNREGISTER do serwera
 	} else if(strcmp(cmain, "join") == 0) {
+		//char buf[128];
+		//sprintf(buf, "join, carg1: %s, carg2: %s", carg1, carg2);
+		//add_info(c,g->content, buf, &t);
 		// musi miec jeden argument minimum, MSG_JOIN do serwera
+		if(strcmp(carg1, "") == 0) {
+			add_info(c, g->content, "za malo argumentow dla 'join'", &t);
+		} else {
+			message msg;
+			msg.type = M_JOIN;
+			msg.dest = c->serverkey;
+			//msg.source = c->mykey;
+			strcpy(msg.content.room, carg1);
+			write(room[1], &(msg.content.room), 512);
+			//char buf[512];
+			//strcpy(buf, carg1);
+			//read(room[0], &buf, 512);
+			//write(room[1], &buf, 512);
+			//add_info(c, g->content, buf, &t);
+			strcpy(msg.content.name, c->nick);
+			mq_send(outfd,(char*)&msg, MAX_MSG_SIZE, M_JOIN); 
+		}
 	} else if(strcmp(cmain, "leave") == 0) {
+		message msg;
+		msg.type = M_LEAVE;
+		msg.dest = c->serverkey;
+		msg.source = c->mykey;
+		mq_send(outfd,(char*)&msg, MAX_MSG_SIZE, M_LEAVE);
 		// wyslij MSG_LEAVE do serwera
 	} else if(strcmp(cmain, "list") == 0) {
 		char buf[512];

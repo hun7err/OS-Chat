@@ -20,7 +20,7 @@
 int main(int argc, char ** argv) {
 	char buff[30];
 	time_t t;
-	int semid, shmid, msgid, msg_key = START_KEY, sem_key = START_KEY, shm_key = START_KEY;
+	int semid, shmid, msgid, msg_key = START_KEY, sem_key = START_KEY, shm_key = START_KEY, heartbeat_msg_key = START_KEY;
 
 	short sem[3] = {1, 1, 1};
 	// 0 - lista serwerow, 1 - lista klientow, 2 - plik logu (zdefiniowane w chat.h)
@@ -88,9 +88,12 @@ int main(int argc, char ** argv) {
 	printf("%s Tworzenie kolejki komunikatow\n", buff);
 	
 	get_key(&msg_key, MSG);
+	get_key(&heartbeat_msg_key, MSG);
 	msgid = msgget(msg_key, 0777);
+	//printf("heartbeat key: %d\n", heartbeat_msg_key);
+	res.heartbeat_msg_key = heartbeat_msg_key;
 	gettime(buff, &t);
-	printf("%s Mam kolejke, klucz: %d. Time for rock'n'roll!\n", buff, msg_key);
+	printf("%s Mam kolejke, klucz: %d. Let the show begin!\n", buff, msg_key);
 	//p(semid, 2);
 
 	semid = semget(sem_key, 3, 0777);
@@ -120,12 +123,163 @@ int main(int argc, char ** argv) {
 	if(!(res.child = fork())) { // heartbeat
 		signal(SIGINT, SIG_DFL);
 		struct timespec tim;
-		tim.tv_sec = 0;
-		tim.tv_nsec = 1000;
+		tim.tv_sec = 2;
+		tim.tv_nsec = 0;
 		
 		while(1) {
+			int mid = msgget(res.heartbeat_msg_key, 0777), i = 0;
+			if(mid == -1) {
+				perror("HEARTBEAT: nie mozna pobrac id kolejki");
+				exit(-1);
+			}
+			compact_message cmg;
+			int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+			if(shmid != -1) {
+				int semid = semget(res.sem_key, 3, 0777);
+				if(semid != -1) {
+					shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
+					if(shared != (void*)(-1)) {
+						p(semid, CLIENT);
+						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+							if(shared->clients[i].queue_key != -1 && shared->clients[i].server_queue_key == msg_key) {
+								printf("heartbeat do %d\n", shared->clients[i].queue_key);
+								cmg.type = MSG_HEARTBEAT;
+								cmg.content.value = msg_key;
+								int rcpt = msgget(shared->clients[i].queue_key, 0777);
+								msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+							}
+						}
+						v(semid, CLIENT);
+					}
+					shmdt(shared);
+				}
+			}
 			// dodac wewnetrzna kolejke SysV, do ktorej proces glowny wrzuci odpowiedzi na heartbeaty ktore bedzie mozna tu odczytac
 			nanosleep(&tim, NULL);
+			char curtime[25];
+			time_t t;
+			gettime(curtime, &t);
+			//printf("%s HEARTBEAT: sprawdzam\n", curtime);
+			mid = msgget(res.heartbeat_msg_key, 0777);
+			if(mid != -1) {
+				compact_message cmg;
+				int vals[MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER];
+				int ret = 1;
+				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+					vals[i] = 0;
+				}
+				i = 0;
+				//printf("odczytuje z %d\n", res.heartbeat_msg_key);
+				do {
+					ret = msgrcv(mid, &cmg, member_size(compact_message, content), MSG_HEARTBEAT, IPC_NOWAIT);
+					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
+					if(ret != -1) vals[i] = cmg.content.value;
+					i++;
+				} while(ret != -1);
+				//printf("odebrano:\n");
+				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
+				//printf("\n");
+				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				if(shmid == -1) {
+					perror("Blad shmget");
+					exit(-1);
+				}
+				semid = semget(res.sem_key, 3, 0777);
+				if(semid == -1) {
+					perror("Blad semget");
+					exit(-1);
+				}
+				shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
+				if(shared == (void*)(-1)) {
+					perror("Nie mozna podlaczyc SHM");
+					exit(-1);
+				}
+				p(semid, CLIENT);
+				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+					int j = 0, found = 0;
+					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
+						if(shared->clients[i].queue_key == vals[j] && shared->clients[i].queue_key != -1) {
+							found = 1;
+							break;
+						}
+					}
+					/*if(!found) {
+						strcpy(shared->clients[i].room, "");
+						strcpy(shared->clients[i].name, "");
+						shared->clients[i].queue_key = -1;
+						shared->clients[i].server_queue_key = -1;
+					}*/
+				}
+				v(semid, CLIENT);
+				//shmdt(shared);
+				p(semid, SERVER);
+				//printf("Wysylam HEARTBEAT_SERVER\n");
+				for(i = 0; i < MAX_SERVER_COUNT; i++) {
+					if(shared->servers[i].queue_key != -1 && shared->servers[i].queue_key != msg_key) {
+						int rcpt = msgget(shared->servers[i].queue_key, 0777);
+						cmg.type = MSG_HEARTBEAT_SERVER;
+						cmg.content.value = msg_key;
+						msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+						//printf("wysylam do %d\n", shared->servers[i].queue_key);
+					}
+				}
+				v(semid, SERVER);
+				shmdt(shared);
+				nanosleep(&tim, NULL);
+				mid = msgget(res.heartbeat_msg_key, 0777);
+				if(mid != -1) {
+				compact_message cmg;
+				int vals[MAX_SERVER_COUNT];
+				int ret = 1;
+				for(i = 0; i < MAX_SERVER_COUNT; i++) {
+					vals[i] = 0;
+				}
+				i = 0;
+				//printf("odczytuje z %d\n", res.heartbeat_msg_key);
+				do {
+					ret = msgrcv(mid, &cmg, member_size(compact_message, content), MSG_HEARTBEAT, IPC_NOWAIT);
+					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
+					if(ret != -1) vals[i] = cmg.content.value;
+					i++;
+				} while(ret != -1);
+				//printf("odebrano:\n");
+				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
+				//printf("\n");
+				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+				if(shmid == -1) {
+					perror("Blad shmget");
+					exit(-1);
+				}
+				semid = semget(res.sem_key, 3, 0777);
+				if(semid == -1) {
+					perror("Blad semget");
+					exit(-1);
+				}
+				shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
+				if(shared == (void*)(-1)) {
+					perror("Nie mozna podlaczyc SHM");
+					exit(-1);
+				}
+				p(semid, SERVER);
+				for(i = 0; i < MAX_SERVER_COUNT; i++) {
+					int j = 0, found = 0;
+					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
+						if(shared->servers[i].queue_key == vals[j]) {
+							found = 1;
+							break;
+						}
+					}
+					/*if(!found && shared->servers[i].queue_key != msg_key) {
+						//strcpy(shared->clients[i].room, "");
+						//strcpy(shared->clients[i].name, "");
+						shared->servers[i].queue_key = -1;
+						//shared->clients[i].server_queue_key = -1;
+					}*/
+				}
+				v(semid, SERVER);
+				shmdt(shared);
+				}
+			}
 		}
 	} else {	// obsluga wiadomosci -> odbieranie/wysylanie
 		signal(SIGINT, sighandler);
@@ -170,7 +324,7 @@ int main(int argc, char ** argv) {
 							val = E_FULL;
 							break;
 						}
-						if(shared->clients[i].queue_key == cmg.content.value) {
+						if(shared->clients[i].queue_key == cmg.content.value || strcmp(shared->clients[i].name, cmg.content.sender) == 0) {
 							val = E_NICKEX;
 							break;
 						}
@@ -197,7 +351,23 @@ int main(int argc, char ** argv) {
 				// jesli nie, zmien status na odpowiedni ERROR i odeslij
 
 			}
+			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_HEARTBEAT_SERVER) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_HEARTBEAT_SERVER od %d\n", curtime, cmg.content.value);
+				int rcpt = msgget(cmg.content.value, 0777), hb = msgget(res.heartbeat_msg_key, 0777);
+				msgsnd(hb, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				cmg.content.value = msg_key;
+				//msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				//semid = semget(sem_key, 3, 0777);
+				//shmid = shmget(shm_key, sizeof(shm_type), 0777);
+			}
 			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_UNREGISTER) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_UNREGISTER od %d\n", curtime, cmg.content.value);
 				semid = semget(sem_key, 3, 0777);
 				shmid = shmget(shm_key, sizeof(shm_type), 0777);
 				p(semid, CLIENT);
@@ -220,8 +390,12 @@ int main(int argc, char ** argv) {
 				v(semid, CLIENT);
 				// tu wywal klienta z listy
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_JOIN) != -1) {
+			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_JOIN) != -1) {
 				// zmien klientowi kanal i odeslij strukture ze status = 0
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_JOIN od %s do %s\n", curtime, smg.content.sender, smg.content.message);
 				semid = semget(sem_key, 3, 0777);
 				shmid = shmget(shm_key, sizeof(shm_type), 0777);
 				p(semid, CLIENT);
@@ -231,19 +405,27 @@ int main(int argc, char ** argv) {
 					perror("shmat MSG_JOIN");
 					return -1;
 				}
+				int rcpt;
 				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-					if(shared->clients[i].queue_key == cmg.content.value) {
-						strcpy(shared->clients[i].room, cmg.content.sender);
+					if(strcmp(shared->clients[i].name, smg.content.sender) == 0) {
+						strcpy(shared->clients[i].room, smg.content.message);
+						rcpt = shared->clients[i].queue_key;
 						break;
 					}
 				}
-				mid = msgget(cmg.content.value, 0777);
 				cmg.content.value = 0;
+				cmg.type = MSG_JOIN;
+				//printf("Odbiorca to %s, odsylam pod %d\n", smg.content.sender, rcpt);
+				mid = msgget(rcpt, 0777);
 				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
 				shmdt(shared);
 				v(semid, CLIENT);
 			}
 			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_LEAVE) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_LEAVE od %d\n", curtime, cmg.content.value);
 				semid = semget(sem_key, 3, 0777);
 				shmid = shmget(shm_key, sizeof(shm_type), 0777);
 				p(semid, CLIENT);
@@ -267,7 +449,14 @@ int main(int argc, char ** argv) {
 				// przenies klienta z pokoju do globala
 			}
 			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_HEARTBEAT) != -1) {
+				char curtime[25];
+				time_t t;
+				gettime(curtime, &t);
+				printf("%s MSG_HEARTBEAT od %d\n", curtime, cmg.content.value);
 				// obsluga heartbeat - odpowiedzi (dac tutaj wewnetrzna kolejke SysV i do niej sobie wysylac te odpowiedzi, pozniej odbierac je w watku wysylajacym)
+				int internal = msgget(res.heartbeat_msg_key, 0777);
+				int ret = msgsnd(internal, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				printf("msgsnd do wewnetrznej: %d, odebrane od %d\n", ret, cmg.content.value);
 			}
 			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_LIST) != -1) {
 				// odeslij w user_list liste userow
@@ -290,9 +479,16 @@ int main(int argc, char ** argv) {
 						return -1;
 					}
 					p(semid, CLIENT);
+					char room[512];
+					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
+						if(shared->clients[i].queue_key == cmg.content.value) {
+							strcpy(room, shared->clients[i].room);
+							break;
+						}
+					}
 					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
 						if(cur > MAX_USER_LIST_LENGTH) break;
-						if(shared->clients[i].queue_key != -1) {
+						if(shared->clients[i].queue_key != -1 && strcmp(shared->clients[i].room, room) == 0) {
 							strcpy(usr.content.list[cur], shared->clients[i].name);
 							cur++;
 						}
@@ -327,7 +523,7 @@ int main(int argc, char ** argv) {
 					}
 					p(semid, CLIENT);
 					for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-						if(shared->clients[i].server_queue_key == msg_key && strcmp(shared->clients[i].name, smg.content.sender) != 0) {
+						if(shared->clients[i].server_queue_key == msg_key && strcmp(shared->clients[i].name, smg.content.sender) != 0 && strcmp(shared->clients[i].room, smg.content.recipient) == 0) {
 							int mid = msgget(shared->clients[i].queue_key, 0777);
 							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
 							//printf("wysylam do %d\n", shared->clients[i].queue_key);

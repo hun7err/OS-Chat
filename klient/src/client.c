@@ -127,8 +127,14 @@ int main(int argc, char ** argv) {
 	if(ret == -1) {
 		add_content_line(&core, gui.content, 0, "-!- Blad: nie mozna utworzyc potoku");
 	}
+	ret = pipe(room);
+	if(ret == -1) {
+		add_info(&core, gui.content, "BLAD: nie mozna utworzyc potoku", &now);
+	}
 	fcntl(server_key[0], F_SETFL, O_NDELAY);
 	fcntl(server_key[1], F_SETFL, O_NDELAY);
+	fcntl(room[0], F_SETFL, O_NDELAY);
+	fcntl(room[1], F_SETFL, O_NDELAY);
 
 	// internal: obrobione dane do wyswietlenia
 	// external: "surowe" dane do obrobienia przez forki
@@ -159,7 +165,8 @@ int main(int argc, char ** argv) {
 		tim.tv_nsec = 1000;	
 
 		//close(server_key[1]);
-
+		char roomname[512];
+		close(room[1]);
 		while(1) {
 			int mid = msgget(ext_queue, 0777);
 			char buf[64];
@@ -169,6 +176,15 @@ int main(int argc, char ** argv) {
 			} else {	
 				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_HEARTBEAT) != -1) {
 					
+				}
+				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_JOIN) != -1) {
+					int ret = 0;
+					do {
+						ret = read(room[0], &roomname, 512);
+					} while(ret == 0);
+					msg.type = M_JOIN;
+					strcpy(msg.content.room, roomname);
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_JOIN);
 				}
 				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_REGISTER) != -1) {
 					int /*mid = -1, */len = -1, val;

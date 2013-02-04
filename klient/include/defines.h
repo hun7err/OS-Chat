@@ -17,6 +17,7 @@ typedef struct {
 
 resources res;
 int server_key[2];
+int room[2];
 
 // stałe
 #define KEY_ESCAPE 27

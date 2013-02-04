@@ -14,6 +14,7 @@
 typedef struct {
 	int shm_key;
 	int msg_key;
+	int heartbeat_msg_key;
 	int sem_key;
 	int child;
 } resource;
