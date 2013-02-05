@@ -481,7 +481,7 @@ int main(int argc, char ** argv) {
 					p(semid, CLIENT);
 					char room[512];
 					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
-						if(shared->clients[i].queue_key == cmg.content.value) {
+						if(shared->clients[i].queue_key == cmg.content.value || strcmp(shared->clients[i].name, cmg.content.sender) == 0) {
 							strcpy(room, shared->clients[i].room);
 							break;
 						}
