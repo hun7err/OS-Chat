@@ -215,28 +215,14 @@ int main(int argc, char ** argv) {
 					}
 				}
 				v(semid, CLIENT);
-
-				//printf("odebrano:\n");
-				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
-				//printf("\n");
-				
-				//for(
-				//p(semid, CLIENT);
-				/*for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-					int found = 0;
-					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
-						if(shared->clients[i].queue_key == vals[j] && shared->clients[i].queue_key != -1) {
-							found = 1;
-							break;
-						}
-					}
-					if(!found) {
-						
-					}
-				}*/
-				//v(semid, CLIENT);
-				//shmdt(shared);
 				p(semid, SERVER);
+				int valss[MAX_SERVER_COUNT];
+				int ret = 1;
+				for(i = 0; i < MAX_SERVER_COUNT; i++) {
+					valss[i] = 0;
+				}
+				i = 0;
+				j = 0;
 				//printf("Wysylam HEARTBEAT_SERVER\n");
 				for(i = 0; i < MAX_SERVER_COUNT; i++) {
 					if(shared->servers[i].queue_key != -1 && shared->servers[i].queue_key != msg_key) {
@@ -244,6 +230,8 @@ int main(int argc, char ** argv) {
 						cmg.type = MSG_HEARTBEAT_SERVER;
 						cmg.content.value = msg_key;
 						msgsnd(rcpt, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
+						valss[j] = shared->servers[i].queue_key;
+						j++;
 						//printf("wysylam do %d\n", shared->servers[i].queue_key);
 					}
 				}
@@ -253,22 +241,22 @@ int main(int argc, char ** argv) {
 				mid = msgget(res.heartbeat_msg_key, 0777);
 				if(mid != -1) {
 				compact_message cmg;
-				int vals[MAX_SERVER_COUNT];
-				int ret = 1;
-				for(i = 0; i < MAX_SERVER_COUNT; i++) {
-					vals[i] = 0;
-				}
-				i = 0;
-				//printf("odczytuje z %d\n", res.heartbeat_msg_key);
+				printf("przed:\t");
+				for(i = 0; i < 5; i++) printf(" %d", valss[i]);
+				printf("\n");
 				do {
-					ret = msgrcv(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT, IPC_NOWAIT);
+					ret = msgrcv(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT_SERVER, IPC_NOWAIT);
 					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
-					if(ret != -1) vals[i] = cmg.content.value;
+					if(ret != -1) {
+						for(i = 0; i < MAX_SERVER_COUNT; i++) {
+							if(valss[i] == cmg.content.value) valss[i] = 0;
+						}
+					}
 					i++;
 				} while(ret != -1);
-				//printf("odebrano:\n");
-				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
-				//printf("\n");
+				printf("przed:\t");
+				for(i = 0; i < 5; i++) printf(" %d", valss[i]);
+				printf("\n");
 				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
 				if(shmid == -1) {
 					perror("Blad shmget");
@@ -286,19 +274,13 @@ int main(int argc, char ** argv) {
 				}
 				p(semid, SERVER);
 				for(i = 0; i < MAX_SERVER_COUNT; i++) {
-					int j = 0, found = 0;
-					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
-						if(shared->servers[i].queue_key == vals[j]) {
-							found = 1;
-							break;
+					for(j = 0; j < MAX_SERVER_COUNT; j++) {
+						if(shared->servers[i].queue_key == valss[j] && valss[j] > 0) {
+							gettime(curtime, &t);
+							printf("%s HB serwer: Usuwam %d\n", curtime, valss[j]);
+							shared->servers[i].queue_key = -1;
 						}
 					}
-					/*if(!found && shared->servers[i].queue_key != msg_key) {
-						//strcpy(shared->clients[i].room, "");
-						//strcpy(shared->clients[i].name, "");
-						shared->servers[i].queue_key = -1;
-						//shared->clients[i].server_queue_key = -1;
-					}*/
 				}
 				v(semid, SERVER);
 				shmdt(shared);
