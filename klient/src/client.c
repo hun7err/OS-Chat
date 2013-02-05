@@ -174,10 +174,16 @@ int main(int argc, char ** argv) {
 				// wyslij komunikat do GUI że się posypała kolejka
 				// spróbuj zaalokować nową
 			} else {	
-				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_HEARTBEAT) != -1) {
-					
+				if(receive(ext_queue, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT) != -1) {
+					msg.type = M_HEARTBEAT;
+					msg.source = cmg.content.value;
+					int rcpt = msgget(cmg.content.value, 0777);
+					cmg.content.value = core.mykey;
+					msgsnd(rcpt, &cmg, sizeof(compact_message), IPC_NOWAIT);
+					//mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_HEARTBEAT);
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_HEARTBEAT);
 				}
-				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_JOIN) != -1) {
+				if(receive(ext_queue, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_JOIN) != -1) {
 					int ret = 0;
 					do {
 						ret = read(room[0], &roomname, 512);
@@ -186,7 +192,7 @@ int main(int argc, char ** argv) {
 					strcpy(msg.content.room, roomname);
 					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_JOIN);
 				}
-				if(receive(ext_queue, &cmg, member_size(compact_message, content), MSG_REGISTER) != -1) {
+				if(receive(ext_queue, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_REGISTER) != -1) {
 					int /*mid = -1, */len = -1, val;
 					switch(cmg.content.value) {
 						case 0:
@@ -211,7 +217,7 @@ int main(int argc, char ** argv) {
 								msg.dest = skey;
 								mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
 							}
-								//msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+								//msgsnd(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 						break;
 						case -1: // nick istnieje
 							msg.type = M_ERROR;
@@ -225,20 +231,20 @@ int main(int argc, char ** argv) {
 						break;
 					}
 				}
-				if(receive(ext_queue, &smg, member_size(standard_message, content), MSG_ROOM) != -1) {
+				if(receive(ext_queue, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), MSG_ROOM) != -1) {
 					msg.type = M_MESSAGE;
 					strcpy(msg.content.message, smg.content.message);
 					strcpy(msg.content.name, smg.content.sender);
 					msg.content.date = smg.content.send_date;
 					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_MESSAGE);
 				}
-				if(receive(ext_queue, &smg, member_size(standard_message, content), MSG_PRIVATE) != -1) {
+				if(receive(ext_queue, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), MSG_PRIVATE) != -1) {
 					msg.type = M_PRIVATE;
 					strcpy(msg.content.message, smg.content.message);
 					strcpy(msg.content.name, smg.content.sender);
 					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_PRIVATE);
 				}
-				if(receive(ext_queue, &usr, member_size(user_list, content), MSG_LIST) != -1) {
+				if(receive(ext_queue, &usr, /*member_size(user_list, content)*/sizeof(user_list), MSG_LIST) != -1) {
 					msg.type = M_USERLIST;
 					int i = 0;
 					for(; i < MAX_USER_LIST_LENGTH; i++) {

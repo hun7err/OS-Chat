@@ -133,20 +133,31 @@ int main(int argc, char ** argv) {
 				exit(-1);
 			}
 			compact_message cmg;
-			int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
+			int shmid = shmget(res.shm_key, sizeof(shm_type), 0777),
+				vals[MAX_USER_COUNT_PER_SERVER],
+				ret = 1, j = 0;
 			if(shmid != -1) {
+				//printf("shmid != -1\n");
 				int semid = semget(res.sem_key, 3, 0777);
 				if(semid != -1) {
 					shm_type* shared = (shm_type*)shmat(shmid, NULL, 0);
 					if(shared != (void*)(-1)) {
+						for(i = 0; i < MAX_USER_COUNT_PER_SERVER; i++) {
+							vals[i] = 0;
+						}
+						i = 0;
+						//printf("przed p(semid, CLIENT)\n");
 						p(semid, CLIENT);
+						//printf("po opuszczeniu semafora CLIENT\n");
 						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 							if(shared->clients[i].queue_key != -1 && shared->clients[i].server_queue_key == msg_key) {
-								printf("heartbeat do %d\n", shared->clients[i].queue_key);
+								printf("Heartbeat do %d\n", shared->clients[i].queue_key);
 								cmg.type = MSG_HEARTBEAT;
 								cmg.content.value = msg_key;
+								vals[j] = shared->clients[i].queue_key;
+								j++;
 								int rcpt = msgget(shared->clients[i].queue_key, 0777);
-								msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+								msgsnd(rcpt, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 							}
 						}
 						v(semid, CLIENT);
@@ -159,26 +170,22 @@ int main(int argc, char ** argv) {
 			char curtime[25];
 			time_t t;
 			gettime(curtime, &t);
-			//printf("%s HEARTBEAT: sprawdzam\n", curtime);
+			printf("%s HEARTBEAT: sprawdzam\n", curtime);
 			mid = msgget(res.heartbeat_msg_key, 0777);
 			if(mid != -1) {
 				compact_message cmg;
-				int vals[MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER];
-				int ret = 1;
-				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-					vals[i] = 0;
-				}
-				i = 0;
+				
 				//printf("odczytuje z %d\n", res.heartbeat_msg_key);
 				do {
-					ret = msgrcv(mid, &cmg, member_size(compact_message, content), MSG_HEARTBEAT, IPC_NOWAIT);
+					ret = msgrcv(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT, IPC_NOWAIT);
 					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
-					if(ret != -1) vals[i] = cmg.content.value;
+					if(ret != -1) {
+						for(i = 0; i < MAX_USER_COUNT_PER_SERVER; i++) {
+							if(vals[i] == cmg.content.value) vals[i] = 0;
+						}
+					}
 					i++;
 				} while(ret != -1);
-				//printf("odebrano:\n");
-				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
-				//printf("\n");
 				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
 				if(shmid == -1) {
 					perror("Blad shmget");
@@ -196,21 +203,38 @@ int main(int argc, char ** argv) {
 				}
 				p(semid, CLIENT);
 				for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
-					int j = 0, found = 0;
+					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
+						if(shared->clients[i].queue_key == vals[j] && vals[j] > 0) {
+							gettime(curtime, &t);
+							printf("%s Usuwam %d\n", curtime, vals[j]);
+							strcpy(shared->clients[i].room, "");
+							strcpy(shared->clients[i].name, "");
+							shared->clients[i].queue_key = -1;
+							shared->clients[i].server_queue_key = -1;
+						}
+					}
+				}
+				v(semid, CLIENT);
+
+				//printf("odebrano:\n");
+				//for(i = 0; i < 10; i++) printf("%d ", vals[i]);
+				//printf("\n");
+				
+				//for(
+				//p(semid, CLIENT);
+				/*for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
+					int found = 0;
 					for(j = 0; j < MAX_USER_COUNT_PER_SERVER; j++) {
 						if(shared->clients[i].queue_key == vals[j] && shared->clients[i].queue_key != -1) {
 							found = 1;
 							break;
 						}
 					}
-					/*if(!found) {
-						strcpy(shared->clients[i].room, "");
-						strcpy(shared->clients[i].name, "");
-						shared->clients[i].queue_key = -1;
-						shared->clients[i].server_queue_key = -1;
-					}*/
-				}
-				v(semid, CLIENT);
+					if(!found) {
+						
+					}
+				}*/
+				//v(semid, CLIENT);
 				//shmdt(shared);
 				p(semid, SERVER);
 				//printf("Wysylam HEARTBEAT_SERVER\n");
@@ -219,7 +243,7 @@ int main(int argc, char ** argv) {
 						int rcpt = msgget(shared->servers[i].queue_key, 0777);
 						cmg.type = MSG_HEARTBEAT_SERVER;
 						cmg.content.value = msg_key;
-						msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+						msgsnd(rcpt, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 						//printf("wysylam do %d\n", shared->servers[i].queue_key);
 					}
 				}
@@ -237,7 +261,7 @@ int main(int argc, char ** argv) {
 				i = 0;
 				//printf("odczytuje z %d\n", res.heartbeat_msg_key);
 				do {
-					ret = msgrcv(mid, &cmg, member_size(compact_message, content), MSG_HEARTBEAT, IPC_NOWAIT);
+					ret = msgrcv(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT, IPC_NOWAIT);
 					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
 					if(ret != -1) vals[i] = cmg.content.value;
 					i++;
@@ -300,7 +324,7 @@ int main(int argc, char ** argv) {
 		while(1) {
 			int semid = -1, shmid = -1, mid = -1, i = 0, firstfree = -1, usercount = 0, val = 0;
 			
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_REGISTER) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_REGISTER) != -1) {
 				gettime(buff, &t);
 				sprintf(buf, "%s [%d] zarejestrowalem uzytkownika %s (kolejka: %d)\n", buff, msg_key, cmg.content.sender, cmg.content.value);
 				logfile(buf, &sem_key);
@@ -341,7 +365,7 @@ int main(int argc, char ** argv) {
 				mid = msgget(cmg.content.value, 0777);
 				//printf("numer kolejki: %d\n", cmg.content.value);
 				cmg.content.value = val;
-				int ret = msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				int ret = msgsnd(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				if(ret == -1) {
 					perror("Blad msgsnd");
 					printf("Numer bledu: %d\n", errno);
@@ -351,19 +375,19 @@ int main(int argc, char ** argv) {
 				// jesli nie, zmien status na odpowiedni ERROR i odeslij
 
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_HEARTBEAT_SERVER) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT_SERVER) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
 				printf("%s MSG_HEARTBEAT_SERVER od %d\n", curtime, cmg.content.value);
 				int rcpt = msgget(cmg.content.value, 0777), hb = msgget(res.heartbeat_msg_key, 0777);
-				msgsnd(hb, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(hb, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				cmg.content.value = msg_key;
-				//msgsnd(rcpt, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				//msgsnd(rcpt, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				//semid = semget(sem_key, 3, 0777);
 				//shmid = shmget(shm_key, sizeof(shm_type), 0777);
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_UNREGISTER) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_UNREGISTER) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
@@ -390,7 +414,7 @@ int main(int argc, char ** argv) {
 				v(semid, CLIENT);
 				// tu wywal klienta z listy
 			}
-			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_JOIN) != -1) {
+			if(receive(msg_key, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), MSG_JOIN) != -1) {
 				// zmien klientowi kanal i odeslij strukture ze status = 0
 				char curtime[25];
 				time_t t;
@@ -417,11 +441,11 @@ int main(int argc, char ** argv) {
 				cmg.type = MSG_JOIN;
 				//printf("Odbiorca to %s, odsylam pod %d\n", smg.content.sender, rcpt);
 				mid = msgget(rcpt, 0777);
-				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				shmdt(shared);
 				v(semid, CLIENT);
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_LEAVE) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_LEAVE) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
@@ -443,22 +467,22 @@ int main(int argc, char ** argv) {
 				}
 				mid = msgget(cmg.content.value, 0777);
 				cmg.content.value = 0;
-				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				shmdt(shared);
 				v(semid, CLIENT);
 				// przenies klienta z pokoju do globala
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_HEARTBEAT) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
 				printf("%s MSG_HEARTBEAT od %d\n", curtime, cmg.content.value);
 				// obsluga heartbeat - odpowiedzi (dac tutaj wewnetrzna kolejke SysV i do niej sobie wysylac te odpowiedzi, pozniej odbierac je w watku wysylajacym)
 				int internal = msgget(res.heartbeat_msg_key, 0777);
-				int ret = msgsnd(internal, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				int ret = msgsnd(internal, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				printf("msgsnd do wewnetrznej: %d, odebrane od %d\n", ret, cmg.content.value);
 			}
-			if(receive(msg_key, &cmg, member_size(compact_message, content), MSG_LIST) != -1) {
+			if(receive(msg_key, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_LIST) != -1) {
 				// odeslij w user_list liste userow
 				char curtime[25];
 				time_t t;
@@ -497,10 +521,10 @@ int main(int argc, char ** argv) {
 					for(i = cur; i < MAX_USER_LIST_LENGTH; i++) strcpy(usr.content.list[cur], "");	// good guy hun7er clears your empty user fields.
 					shmdt(shared);
 					int rcpt = msgget(cmg.content.value, 0777);
-					msgsnd(rcpt, &usr, member_size(user_list, content), IPC_NOWAIT);
+					msgsnd(rcpt, &usr, /*member_size(user_list, content)*/sizeof(user_list), IPC_NOWAIT);
 				}
 			}
-			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_ROOM) != -1) {
+			if(receive(msg_key, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), MSG_ROOM) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
@@ -525,7 +549,7 @@ int main(int argc, char ** argv) {
 					for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 						if(shared->clients[i].server_queue_key == msg_key && strcmp(shared->clients[i].name, smg.content.sender) != 0 && strcmp(shared->clients[i].room, smg.content.recipient) == 0) {
 							int mid = msgget(shared->clients[i].queue_key, 0777);
-							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+							msgsnd(mid, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), IPC_NOWAIT);
 							//printf("wysylam do %d\n", shared->clients[i].queue_key);
 						}
 					}
@@ -534,7 +558,7 @@ int main(int argc, char ** argv) {
 					for(i = 0; i < MAX_SERVER_COUNT; i++) {
 						if(shared->servers[i].queue_key != -1 && shared->servers[i].queue_key != msg_key) {
 							int mid = msgget(shared->servers[i].queue_key, 0777);
-							msgsnd(mid, &svm, member_size(server_message, content), IPC_NOWAIT);
+							msgsnd(mid, &svm, /*member_size(server_message, content)*/sizeof(server_message), IPC_NOWAIT);
 						}
 					}
 					v(semid, SERVER);
@@ -542,7 +566,7 @@ int main(int argc, char ** argv) {
 				}
 				// spakuj do MSG_SERVER i wyslij do wszystkich serwerow poza soba, jesli na serwerze istnieje pokoj do ktorego szla wiadomosc to wtedy do userow tego pokoju wyslij wiadomosc
 			}
-			if(receive(msg_key, &svmg, member_size(server_message, content), MSG_SERVER) != -1) {
+			if(receive(msg_key, &svmg, /*member_size(server_message, content)*/sizeof(server_message), MSG_SERVER) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
@@ -572,7 +596,7 @@ int main(int argc, char ** argv) {
 						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 							if(strcmp(shared->clients[i].room, smg.content.recipient) == 0 && shared->clients[i].server_queue_key == msg_key) {
 								int mid = msgget(shared->clients[i].queue_key, 0777);
-								msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+								msgsnd(mid, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), IPC_NOWAIT);
 								//printf("przeslano do %d\n", shared->clients[i].queue_key);
 							}
 						}
@@ -581,7 +605,7 @@ int main(int argc, char ** argv) {
 						for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 							if(strcmp(shared->clients[i].name, smg.content.recipient) == 0 && shared->clients[i].server_queue_key == msg_key) {
 								int mid = msgget(shared->clients[i].queue_key, 0777);
-								msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+								msgsnd(mid, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), IPC_NOWAIT);
 							}
 						}
 						// podobnie ale klientow
@@ -593,7 +617,7 @@ int main(int argc, char ** argv) {
 				shmdt(shared);
 				// odpakuj wiadomosc, sprawdz czy masz komu/gdzie wyslac
 			}
-			if(receive(msg_key, &smg, member_size(standard_message, content), MSG_PRIVATE) != -1) {
+			if(receive(msg_key, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), MSG_PRIVATE) != -1) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
@@ -618,7 +642,7 @@ int main(int argc, char ** argv) {
 					for(i = 0; i < MAX_SERVER_COUNT*MAX_USER_COUNT_PER_SERVER; i++) {
 						if(/*shared->clients[i].server_queue_key == */msg_key && strcmp(shared->clients[i].name, smg.content.recipient) == 0) {
 							int mid = msgget(shared->clients[i].queue_key, 0777);
-							msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+							msgsnd(mid, &smg, /*member_size(standard_message, content)*/sizeof(standard_message), IPC_NOWAIT);
 							//printf("wysylam do %d\n", shared->clients[i].queue_key);
 							break;
 						}

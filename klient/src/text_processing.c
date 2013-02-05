@@ -90,7 +90,8 @@ void out_callback(int fd) {
 				cmg.type = MSG_REGISTER;
 				strcpy(cmg.content.sender, msg.content.name);
 				cmg.content.value = msg.source;
-				msgsnd(mid, &cmg, member_size(compact_message,content), IPC_NOWAIT);
+				//msgsnd(mid, &cmg, member_size(compact_message,content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, sizeof(compact_message), IPC_NOWAIT);
 			}
 		break;
 		case M_MESSAGE:
@@ -102,7 +103,8 @@ void out_callback(int fd) {
 				smg.content.send_date = time(NULL);
 				strcpy(smg.content.message, msg.content.message);
 				smg.type = MSG_ROOM;
-				msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				msgsnd(mid, &smg, sizeof(standard_message), IPC_NOWAIT);
 			}
 		break;
 		case M_USERLIST:
@@ -111,7 +113,8 @@ void out_callback(int fd) {
 				compact_message cmg;
 				cmg.type = MSG_LIST;
 				cmg.content.value = msg.source;
-				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, sizeof(compact_message), IPC_NOWAIT);
 			}
 			// wyslij zapytanie MSG_LIST o liste
 		break;
@@ -124,7 +127,8 @@ void out_callback(int fd) {
 				strcpy(smg.content.recipient, msg.content.room);
 				smg.content.send_date = msg.content.date;
 				strcpy(smg.content.message, msg.content.message);
-				msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				msgsnd(mid, &smg, sizeof(standard_message), IPC_NOWAIT);
 			}
 		break;
 		case M_JOIN:
@@ -134,7 +138,8 @@ void out_callback(int fd) {
 				smg.type = MSG_JOIN;
 				strcpy(smg.content.message, msg.content.room);
 				strcpy(smg.content.sender, msg.content.name);
-				msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &smg, member_size(standard_message, content), IPC_NOWAIT);
+				msgsnd(mid, &smg, sizeof(standard_message), IPC_NOWAIT);
 			}
 		break;
 		case M_LEAVE:
@@ -143,7 +148,8 @@ void out_callback(int fd) {
 				compact_message cmg;
 				cmg.type = MSG_LEAVE;
 				cmg.content.value = msg.source;
-				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, sizeof(compact_message), IPC_NOWAIT);
 			}
 		break;
 		case M_UNREGISTER:
@@ -152,7 +158,8 @@ void out_callback(int fd) {
 				compact_message cmg;
 				cmg.type = MSG_UNREGISTER;
 				cmg.content.value = msg.source;
-				msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				//msgsnd(mid, &cmg, member_size(compact_message, content), IPC_NOWAIT);
+				msgsnd(mid, &cmg, sizeof(compact_message), IPC_NOWAIT);
 			}
 		break;
 		default:
@@ -235,10 +242,10 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 				wrefresh(g->mainwindow);
 			break;
 			case M_HEARTBEAT:
-				//sprintf(buf, "%d", c->serverkey);
-				//add_private(c,g->content,buf,"heartbeat",&now);
-				//sprintf(buf, "%d", msg.source);
-				//add_private(c,g->content,buf,"moj numer kolejki",&now);
+				sprintf(buf, "%d", c->serverkey);
+				add_private(c,g->content,buf,"heartbeat",&now);
+				sprintf(buf, "%d", msg.source);
+				add_private(c,g->content,buf,"moj numer kolejki",&now);
 			break;
 			default:
 			break;
@@ -402,7 +409,7 @@ void parse_cmd(gui_t *g, core_t *c, char *cmd, int outfd) {
 		msg.source = c->mykey; // POPRAWIC! KONIECZNIE! ma byc klucz z res
 		int len = mq_send(outfd, (char*)&msg, MAX_MSG_SIZE, M_REGISTER);
 		if(len == -1) {
-			perror("Blad mq_send w 136 linii text_processing.c");
+			add_info(c, g->content, "Blad mq_send w 136 linii text_processing.c", &t);
 			exit(-1);
 		}
 		//add_content_line(c, g->content, 0, "-!- wiadomosc poprawnie wyslana");
