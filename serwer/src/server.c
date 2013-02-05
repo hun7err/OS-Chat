@@ -241,9 +241,9 @@ int main(int argc, char ** argv) {
 				mid = msgget(res.heartbeat_msg_key, 0777);
 				if(mid != -1) {
 				compact_message cmg;
-				printf("przed:\t");
+				/*printf("przed:\t");
 				for(i = 0; i < 5; i++) printf(" %d", valss[i]);
-				printf("\n");
+				printf("\n");*/
 				do {
 					ret = msgrcv(mid, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), MSG_HEARTBEAT_SERVER, IPC_NOWAIT);
 					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
@@ -254,9 +254,9 @@ int main(int argc, char ** argv) {
 					}
 					i++;
 				} while(ret != -1);
-				printf("przed:\t");
+				/*printf("przed:\t");
 				for(i = 0; i < 5; i++) printf(" %d", valss[i]);
-				printf("\n");
+				printf("\n");*/
 				shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
 				if(shmid == -1) {
 					perror("Blad shmget");
@@ -362,7 +362,8 @@ int main(int argc, char ** argv) {
 				time_t t;
 				gettime(curtime, &t);
 				printf("%s MSG_HEARTBEAT_SERVER od %d\n", curtime, cmg.content.value);
-				int rcpt = msgget(cmg.content.value, 0777), hb = msgget(res.heartbeat_msg_key, 0777);
+				msgget(cmg.content.value, 0777);
+				int hb = msgget(res.heartbeat_msg_key, 0777);
 				msgsnd(hb, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
 				cmg.content.value = msg_key;
 				//msgsnd(rcpt, &cmg, /*member_size(compact_message, content)*/sizeof(compact_message), IPC_NOWAIT);
@@ -469,7 +470,7 @@ int main(int argc, char ** argv) {
 				char curtime[25];
 				time_t t;
 				gettime(curtime, &t);
-				printf("%s MSG_LIST od %d\n", curtime, cmg.content.value);
+				printf("%s MSG_LIST od %d (%s)\n", curtime, cmg.content.value, cmg.content.sender);
 				user_list usr;
 				usr.type = MSG_LIST;
 				int shmid = shmget(res.shm_key, sizeof(shm_type), 0777);
@@ -486,23 +487,30 @@ int main(int argc, char ** argv) {
 					}
 					p(semid, CLIENT);
 					char room[512];
+					int key;
 					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
 						if(shared->clients[i].queue_key == cmg.content.value || strcmp(shared->clients[i].name, cmg.content.sender) == 0) {
 							strcpy(room, shared->clients[i].room);
+							key = shared->clients[i].queue_key;
 							break;
 						}
 					}
+					printf("room usera: %s\n", room);
 					for(i = 0; i < MAX_SERVER_COUNT * MAX_USER_COUNT_PER_SERVER; i++) {
 						if(cur > MAX_USER_LIST_LENGTH) break;
 						if(shared->clients[i].queue_key != -1 && strcmp(shared->clients[i].room, room) == 0) {
+							printf("znaleziono usera: %s\n", shared->clients[i].name);
 							strcpy(usr.content.list[cur], shared->clients[i].name);
 							cur++;
 						}
 					}
 					v(semid, CLIENT);
-					for(i = cur; i < MAX_USER_LIST_LENGTH; i++) strcpy(usr.content.list[cur], "");	// good guy hun7er clears your empty user fields.
+					for(i = cur; i < MAX_USER_LIST_LENGTH; i++) strcpy(usr.content.list[i], "");	// good guy hun7er clears your empty user fields.
+					printf("lista: ");
+					for(i = 0; i < cur; i++) printf("%s;", usr.content.list[i]);
+					printf("\n");
 					shmdt(shared);
-					int rcpt = msgget(cmg.content.value, 0777);
+					int rcpt = msgget(key, 0777);
 					msgsnd(rcpt, &usr, /*member_size(user_list, content)*/sizeof(user_list), IPC_NOWAIT);
 				}
 			}

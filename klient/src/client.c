@@ -169,7 +169,7 @@ int main(int argc, char ** argv) {
 		close(room[1]);
 		while(1) {
 			int mid = msgget(ext_queue, 0777);
-			char buf[64];
+			char buf[16];
 			if(mid == -1) {
 				// wyslij komunikat do GUI że się posypała kolejka
 				// spróbuj zaalokować nową
@@ -207,9 +207,9 @@ int main(int argc, char ** argv) {
 							msg.source = core.mykey;
 							len = 0;
 							do {
-								len = read(server_key[0], &buf, 64);
+								len = read(server_key[0], &buf, 16);
 							} while (len == 0);
-							write(server_key[1], &buf, 64);
+							write(server_key[1], &buf, 16);
 							
 							val = atoi(buf);
 							if(skey != val) skey = val;
@@ -296,18 +296,21 @@ int main(int argc, char ** argv) {
 				while(1) {
 					//sprintf(buf, "[DEBUG] core.serverkey: %d", core.serverkey);
 					//add_content_line(&core, gui.content, 1, buf);
-					char buf[64];
-					read(server_key[0], &buf, 64);
+					char buf[16];
+					read(server_key[0], &buf, 16);
 					int val = atoi(buf);
-					if(val != skey)	skey = val;
-					if(skey != 0) {
+					if(val != skey && skey > 0)	skey = val;
+					if(skey > 0) {
+						endwin();
+						printf("skey: %d\n");
+						exit(-1);
 						message msg;
 						msg.type = M_USERLIST;
 						msg.source = core.mykey;
 						msg.dest = skey;
 						mq_send(queue_out, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
 						sprintf(buf, "%d", skey);
-						write(server_key[1], &buf, 64);
+						write(server_key[1], &buf, 16);
 						//add_content_line(&core, gui.content, 1, "[DEBUG] Trying to reach server...");
 					}
 					nanosleep(&tim, NULL);

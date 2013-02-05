@@ -242,10 +242,10 @@ void in_callback(gui_t *g, core_t *c, int fd) {
 				wrefresh(g->mainwindow);
 			break;
 			case M_HEARTBEAT:
-				sprintf(buf, "%d", c->serverkey);
+				/*sprintf(buf, "%d", c->serverkey);
 				add_private(c,g->content,buf,"heartbeat",&now);
 				sprintf(buf, "%d", msg.source);
-				add_private(c,g->content,buf,"moj numer kolejki",&now);
+				add_private(c,g->content,buf,"moj numer kolejki",&now);*/
 			break;
 			default:
 			break;
