@@ -249,7 +249,12 @@ int main(int argc, char ** argv) {
 					//printf("ret: %d, cmg.content.value: %d\n", ret, cmg.content.value);
 					if(ret != -1) {
 						for(i = 0; i < MAX_SERVER_COUNT; i++) {
-							if(valss[i] == cmg.content.value) valss[i] = 0;
+							if(valss[i] == cmg.content.value) {
+								mid = msgget(valss[i], 0777);
+								cmg.content.value = msg_key;
+								msgsnd(mid, &cmg, sizeof(compact_message), IPC_NOWAIT);
+								valss[i] = 0;
+							}
 						}
 					}
 					i++;
