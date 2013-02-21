@@ -252,6 +252,10 @@ int main(int argc, char ** argv) {
 					}
 					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_USERLIST);
 				}
+				if(receive(ext_queue, &cmg, sizeof(compact_message), MSG_LEAVE) != -1) {
+					msg.type = M_LEAVE;
+					mq_send(queue_in, (char*)&msg, MAX_MSG_SIZE, M_LEAVE);
+				}
 			}
 			nanosleep(&tim, NULL);
 		}
@@ -302,7 +306,7 @@ int main(int argc, char ** argv) {
 					if(val != skey && skey > 0)	skey = val;
 					if(skey > 0) {
 						endwin();
-						printf("skey: %d\n");
+						printf("skey: %d\n", skey);
 						exit(-1);
 						message msg;
 						msg.type = M_USERLIST;
